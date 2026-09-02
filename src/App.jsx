@@ -2953,70 +2953,41 @@ function ResultScreen({
   onBack,
   onRestart,
 }) {
-  const [toast, setToast] =
-    useState("");
-
-  const toastTimer =
-    useRef(null);
+  const [toast, setToast] = useState("");
+  const toastTimer = useRef(null);
 
   const showToast = (msg) => {
     setToast(msg);
-
-    clearTimeout(
-      toastTimer.current
-    );
-
-    toastTimer.current =
-      setTimeout(
-        () => setToast(""),
-        2200
-      );
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(""), 2200);
   };
 
   useEffect(
-    () =>
-      () =>
-        clearTimeout(
-          toastTimer.current
-        ),
+    () => () => clearTimeout(toastTimer.current),
     []
   );
 
   const handleShare = async () => {
-    const text = `VALE?
-${result.fipe.brand} ${result.fipe.model} · ${result.fipe.modelYear}
-${result.score.toFixed(
-      1
-    )}/10 — ${result.verdictLabel}
-${fmtBRL(result.priceNum)}
-Analisado pelo VALE?`;
+    const text = `VALE?\n${result.fipe.brand} ${result.fipe.model} · ${result.fipe.modelYear}\n${result.score.toFixed(1)}/10 — ${result.verdictLabel}\n${fmtBRL(result.priceNum)}\nAnalisado pelo VALE?`;
 
     try {
       if (navigator.share) {
-        await navigator.share({
-          title: "Minha análise VALE?",
-          text,
-        });
+        await navigator.share({ title: "Minha análise VALE?", text });
       } else {
-        await navigator.clipboard.writeText(
-          text
-        );
-
-        showToast(
-          "Análise copiada!"
-        );
+        await navigator.clipboard.writeText(text);
+        showToast("Análise copiada!");
       }
     } catch (e) {
       // usuário cancelou
     }
   };
 
-  const tone =
-    TONE[result.verdictTone];
-
-  const diffLabel = `${
-    result.diffPct >= 0 ? "+" : ""
-  }${result.diffPct.toFixed(1)}%`;
+  const tone = TONE[result.verdictTone];
+  const diffLabel = `${result.diffPct >= 0 ? "+" : ""}${result.diffPct.toFixed(1)}%`;
+  const priceGap = result.referencePrice - result.priceNum;
+  const gapLabel = priceGap > 0 ? "abaixo da FIPE" : priceGap < 0 ? "acima da FIPE" : "igual à FIPE";
+  const gapAbs = Math.abs(priceGap);
+  const gapColor = priceGap > 0 ? C.green : priceGap < 0 ? C.red : C.amber;
 
   return (
     <div
@@ -3026,14 +2997,10 @@ Analisado pelo VALE?`;
         flexDirection: "column",
         padding: "0 24px 24px",
         position: "relative",
-        animation:
-          "vale-slide-in 320ms ease",
+        animation: "vale-slide-in 320ms ease",
       }}
     >
-      <BackHeader
-        onBack={onBack}
-        title="Resultado da análise"
-      />
+      <BackHeader onBack={onBack} title="Resultado da análise" />
 
       <div
         style={{
@@ -3041,315 +3008,388 @@ Analisado pelo VALE?`;
           overflowY: "auto",
           display: "flex",
           flexDirection: "column",
-          gap: 16,
+          gap: 14,
           paddingBottom: 4,
         }}
       >
+        {/* Veículo analisado */}
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 10,
+            justifyContent: "space-between",
+            gap: 12,
+            padding: "4px 2px 2px",
           }}
         >
-          <div
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 12,
-              background: C.surfaceRaised,
-              border: `1px solid ${C.border}`,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <CarIcon
-              size={20}
-              color={C.gold}
-            />
+          <div style={{ display: "flex", alignItems: "center", gap: 11, minWidth: 0 }}>
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                minWidth: 44,
+                borderRadius: 14,
+                background: `linear-gradient(145deg, ${C.surfaceRaised}, ${C.surfaceInput})`,
+                border: `1px solid ${C.borderStrong}`,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                boxShadow: `0 8px 24px ${C.bg}88`,
+              }}
+            >
+              <CarIcon size={21} color={C.gold} />
+            </div>
+
+            <div style={{ minWidth: 0 }}>
+              <div
+                style={{
+                  fontSize: 10.5,
+                  color: C.faint,
+                  textTransform: "uppercase",
+                  letterSpacing: 1.4,
+                  fontWeight: 700,
+                  marginBottom: 2,
+                }}
+              >
+                Veículo analisado
+              </div>
+              <div
+                style={{
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 700,
+                  fontSize: 19,
+                  color: C.text,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {result.fipe.brand} {result.fipe.model}
+              </div>
+            </div>
           </div>
 
           <div
             style={{
-              fontFamily:
-                "'Rajdhani', sans-serif",
-              fontWeight: 700,
-              fontSize: 19,
-              color: C.text,
+              flexShrink: 0,
+              padding: "6px 9px",
+              borderRadius: 9,
+              background: C.surfaceInput,
+              border: `1px solid ${C.border}`,
+              color: C.muted,
+              fontSize: 11,
+              fontFamily: "'JetBrains Mono', monospace",
             }}
           >
-            {result.fipe.brand}{" "}
-            {result.fipe.model}{" "}
-            <span
-              style={{ color: C.muted }}
-            >
-              · {result.fipe.modelYear}
-            </span>
+            {result.fipe.modelYear}
           </div>
         </div>
 
+        {/* Hero do resultado */}
         <div
           style={{
-            background:
-              `linear-gradient(180deg, ${C.surface}, ${C.surfaceRaised})`,
-            border: `1px solid ${C.border}`,
-            borderRadius: 22,
-            padding: "26px 20px 22px",
+            position: "relative",
+            overflow: "hidden",
+            background: `radial-gradient(circle at 50% 8%, ${tone.fg}12 0, transparent 42%), linear-gradient(160deg, ${C.surfaceRaised}, ${C.surface})`,
+            border: `1px solid ${tone.fg}30`,
+            borderRadius: 24,
+            padding: "22px 18px 20px",
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
-            animation:
-              "vale-fade-in 420ms ease",
+            boxShadow: `0 18px 50px ${C.bg}99, inset 0 1px 0 ${C.text}08`,
+            animation: "vale-fade-in 420ms ease",
           }}
         >
-          <ScoreGauge
-            score={result.score}
-            tone={result.verdictTone}
-          />
+          <div
+            style={{
+              position: "absolute",
+              top: 14,
+              left: 14,
+              right: 14,
+              display: "flex",
+              justifyContent: "space-between",
+              pointerEvents: "none",
+            }}
+          >
+            <span style={{ fontSize: 9.5, color: C.faint, letterSpacing: 1.5, textTransform: "uppercase" }}>
+              Avaliação VALE?
+            </span>
+            <span style={{ fontSize: 9.5, color: C.faint, letterSpacing: 1.2 }}>
+              0 — 10
+            </span>
+          </div>
+
+          <div style={{ marginTop: 7 }}>
+            <ScoreGauge score={result.score} tone={result.verdictTone} />
+          </div>
 
           <div
             style={{
-              marginTop: 6,
+              marginTop: 3,
               display: "inline-flex",
               alignItems: "center",
               gap: 8,
               background: tone.bg,
               color: tone.fg,
-              border: `1px solid ${tone.fg}33`,
-              padding: "8px 18px",
+              border: `1px solid ${tone.fg}45`,
+              padding: "9px 18px",
               borderRadius: 999,
-              fontFamily:
-                "'Rajdhani', sans-serif",
-              fontWeight: 700,
-              fontSize: 15.5,
-              letterSpacing: 1,
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 800,
+              fontSize: 15,
+              letterSpacing: 1.1,
+              boxShadow: `0 0 22px ${tone.fg}18`,
             }}
           >
-            {result.verdictTone ===
-            "bad" ? (
-              <AlertTriangleIcon
-                size={15}
-                color={tone.fg}
-                strokeWidth={2.2}
-              />
+            {result.verdictTone === "bad" ? (
+              <AlertTriangleIcon size={15} color={tone.fg} strokeWidth={2.2} />
             ) : (
-              <CheckIcon
-                size={15}
-                color={tone.fg}
-                strokeWidth={2.6}
-              />
+              <CheckIcon size={15} color={tone.fg} strokeWidth={2.6} />
             )}
-
             {result.verdictLabel}
-          </div>
-        </div>
-
-        <div
-          style={{
-            background: C.surfaceRaised,
-            border: `1px solid ${C.border}`,
-            borderRadius: 18,
-            padding: 18,
-            display: "flex",
-            flexDirection: "column",
-            gap: 12,
-            animation:
-              "vale-fade-in 460ms ease",
-          }}
-        >
-          <Row
-            label="Preço anunciado"
-            value={fmtBRL(
-              result.priceNum
-            )}
-          />
-
-          <div
-            style={{
-              height: 1,
-              background: C.border,
-            }}
-          />
-
-          <Row
-            label="Preço de referência"
-            value={fmtBRL(
-              result.referencePrice
-            )}
-            muted
-          />
-
-          <div
-            style={{
-              height: 1,
-              background: C.border,
-            }}
-          />
-
-          <Row
-            label="Diferença"
-            value={diffLabel}
-            valueColor={
-              result.diffPct <= -5
-                ? C.green
-                : result.diffPct >= 5
-                ? C.red
-                : C.amber
-            }
-          />
-
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              marginTop: 2,
-              fontSize: 11,
-              color: C.faint,
-            }}
-          >
-            <span
-              style={{
-                background: C.surfaceInput,
-                border: `1px solid ${C.border}`,
-                borderRadius: 999,
-                padding: "3px 9px",
-                letterSpacing: 0.4,
-              }}
-            >
-              REFERÊNCIA FIPE
-            </span>
-
-            <span>
-              FIPE •{" "}
-              {result.fipe.referenceMonth}
-            </span>
-          </div>
-        </div>
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns:
-              "1fr 1fr",
-            gap: 10,
-            animation:
-              "vale-fade-in 500ms ease",
-          }}
-        >
-          {result.indicators.map(
-            (ind) => (
-              <IndicatorChip
-                key={ind.key}
-                icon={ind.Icon}
-                label={ind.label}
-                value={ind.value}
-                tone={ind.tone}
-              />
-            )
-          )}
-        </div>
-
-        <div
-          style={{
-            background: C.surfaceRaised,
-            border: `1px solid ${C.border}`,
-            borderRadius: 18,
-            padding: 18,
-            animation:
-              "vale-fade-in 540ms ease",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              marginBottom: 10,
-            }}
-          >
-            <BulbIcon
-              size={17}
-              color={C.gold}
-              strokeWidth={1.8}
-            />
-
-            <span
-              style={{
-                fontFamily:
-                  "'Rajdhani', sans-serif",
-                fontWeight: 700,
-                fontSize: 14.5,
-                letterSpacing: 1,
-                color: C.text,
-                textTransform:
-                  "uppercase",
-              }}
-            >
-              Nosso veredito
-            </span>
           </div>
 
           <p
             style={{
-              fontSize: 14,
+              margin: "13px 4px 0",
+              maxWidth: 470,
+              textAlign: "center",
               color: C.muted,
-              lineHeight: 1.65,
-              margin: 0,
+              fontSize: 13,
+              lineHeight: 1.55,
             }}
           >
             {result.verdictText}
           </p>
         </div>
 
+        {/* Comparativo de preço */}
         <div
           style={{
             background: C.surfaceRaised,
             border: `1px solid ${C.border}`,
-            borderRadius: 18,
-            padding: 18,
-            animation:
-              "vale-fade-in 580ms ease",
+            borderRadius: 20,
+            overflow: "hidden",
+            animation: "vale-fade-in 460ms ease",
           }}
         >
           <div
             style={{
+              padding: "15px 17px 13px",
               display: "flex",
               alignItems: "center",
-              gap: 8,
-              marginBottom: 12,
+              justifyContent: "space-between",
+              gap: 12,
+              borderBottom: `1px solid ${C.border}`,
             }}
           >
-            <AlertTriangleIcon
-              size={16}
-              color={C.amber}
-              strokeWidth={2}
-            />
-
-            <span
+            <div>
+              <div style={{ fontSize: 10.5, color: C.faint, textTransform: "uppercase", letterSpacing: 1.3, fontWeight: 700 }}>
+                Comparativo de mercado
+              </div>
+              <div style={{ fontSize: 13, color: C.muted, marginTop: 3 }}>
+                Preço anunciado × referência FIPE
+              </div>
+            </div>
+            <div
               style={{
-                fontFamily:
-                  "'Rajdhani', sans-serif",
-                fontWeight: 700,
-                fontSize: 14.5,
-                letterSpacing: 1,
-                color: C.text,
-                textTransform:
-                  "uppercase",
+                padding: "5px 9px",
+                borderRadius: 999,
+                background: `${gapColor}12`,
+                border: `1px solid ${gapColor}30`,
+                color: gapColor,
+                fontSize: 11,
+                fontWeight: 800,
               }}
             >
-              Antes de comprar
-            </span>
+              {diffLabel}
+            </div>
           </div>
 
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 10,
-            }}
-          >
+          <div style={{ padding: "16px 17px 15px" }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr auto 1fr",
+                alignItems: "center",
+                gap: 10,
+              }}
+            >
+              <div>
+                <div style={{ color: C.faint, fontSize: 11, marginBottom: 4 }}>Anunciado</div>
+                <div style={{ color: C.text, fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, fontSize: 19 }}>
+                  {fmtBRL(result.priceNum)}
+                </div>
+              </div>
+
+              <div style={{ color: C.faint, fontSize: 18 }}>×</div>
+
+              <div style={{ textAlign: "right" }}>
+                <div style={{ color: C.faint, fontSize: 11, marginBottom: 4 }}>Referência FIPE</div>
+                <div style={{ color: C.text, fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, fontSize: 19 }}>
+                  {fmtBRL(result.referencePrice)}
+                </div>
+              </div>
+            </div>
+
+            <div
+              style={{
+                height: 7,
+                marginTop: 16,
+                borderRadius: 99,
+                background: C.surfaceInput,
+                border: `1px solid ${C.border}`,
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  width: `${Math.min(Math.max((result.priceNum / Math.max(result.referencePrice, 1)) * 100, 3), 100)}%`,
+                  height: "100%",
+                  borderRadius: 99,
+                  background: `linear-gradient(90deg, ${gapColor}, ${gapColor}99)`,
+                  boxShadow: `0 0 12px ${gapColor}44`,
+                  transition: "width 800ms ease",
+                }}
+              />
+            </div>
+
+            <div
+              style={{
+                marginTop: 11,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 10,
+              }}
+            >
+              <span style={{ color: C.muted, fontSize: 11.5 }}>{gapLabel}</span>
+              <span style={{ color: gapColor, fontFamily: "'JetBrains Mono', monospace", fontSize: 12, fontWeight: 700 }}>
+                {gapAbs > 0 ? `${fmtBRL(gapAbs)} de diferença` : "Sem diferença"}
+              </span>
+            </div>
+
+            <div
+              style={{
+                marginTop: 13,
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+                flexWrap: "wrap",
+                fontSize: 10.5,
+                color: C.faint,
+              }}
+            >
+              <span
+                style={{
+                  background: C.surfaceInput,
+                  border: `1px solid ${C.border}`,
+                  borderRadius: 999,
+                  padding: "4px 9px",
+                  letterSpacing: 0.5,
+                  color: C.muted,
+                }}
+              >
+                REFERÊNCIA FIPE
+              </span>
+              <span>FIPE • {result.fipe.referenceMonth}</span>
+              {result.fipe.codeFipe && <span>• Cód. {result.fipe.codeFipe}</span>}
+            </div>
+          </div>
+        </div>
+
+        {/* Indicadores */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 10,
+            animation: "vale-fade-in 500ms ease",
+          }}
+        >
+          {result.indicators.map((ind) => (
+            <IndicatorChip
+              key={ind.key}
+              icon={ind.Icon}
+              label={ind.label}
+              value={ind.value}
+              tone={ind.tone}
+            />
+          ))}
+        </div>
+
+        {/* Veredito */}
+        <div
+          style={{
+            background: `linear-gradient(145deg, ${C.surfaceRaised}, ${C.surface})`,
+            border: `1px solid ${C.gold}25`,
+            borderRadius: 20,
+            padding: 18,
+            animation: "vale-fade-in 540ms ease",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 10 }}>
+            <div
+              style={{
+                width: 30,
+                height: 30,
+                borderRadius: 10,
+                background: `${C.gold}12`,
+                border: `1px solid ${C.gold}25`,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <BulbIcon size={16} color={C.gold} strokeWidth={1.8} />
+            </div>
+            <div>
+              <div style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 800, fontSize: 14.5, letterSpacing: 1, color: C.text, textTransform: "uppercase" }}>
+                Nosso veredito
+              </div>
+              <div style={{ fontSize: 10.5, color: C.faint, marginTop: 1 }}>O que o resultado indica</div>
+            </div>
+          </div>
+          <p style={{ fontSize: 14, color: C.muted, lineHeight: 1.65, margin: 0 }}>
+            {result.verdictText}
+          </p>
+        </div>
+
+        {/* Checklist */}
+        <div
+          style={{
+            background: C.surfaceRaised,
+            border: `1px solid ${C.border}`,
+            borderRadius: 20,
+            padding: 18,
+            animation: "vale-fade-in 580ms ease",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 13 }}>
+            <div
+              style={{
+                width: 30,
+                height: 30,
+                borderRadius: 10,
+                background: C.amberDim,
+                border: `1px solid ${C.amber}25`,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <AlertTriangleIcon size={15} color={C.amber} strokeWidth={2} />
+            </div>
+            <div>
+              <div style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 800, fontSize: 14.5, letterSpacing: 1, color: C.text, textTransform: "uppercase" }}>
+                Antes de comprar
+              </div>
+              <div style={{ fontSize: 10.5, color: C.faint, marginTop: 1 }}>Checklist rápido</div>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
             {[
               "Faça avaliação mecânica",
               "Verifique histórico de manutenção",
@@ -3357,111 +3397,51 @@ Analisado pelo VALE?`;
               "Confira documentação",
               "Faça um test-drive",
             ].map((item) => (
-              <div
-                key={item}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                }}
-              >
+              <div key={item} style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <div
                   style={{
-                    width: 20,
-                    height: 20,
-                    minWidth: 20,
+                    width: 21,
+                    height: 21,
+                    minWidth: 21,
                     borderRadius: 7,
                     background: C.greenDim,
+                    border: `1px solid ${C.green}18`,
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
                   }}
                 >
-                  <CheckIcon
-                    size={12}
-                    color={C.green}
-                    strokeWidth={2.8}
-                  />
+                  <CheckIcon size={12} color={C.green} strokeWidth={2.8} />
                 </div>
-
-                <span
-                  style={{
-                    fontSize: 13.8,
-                    color: C.text,
-                  }}
-                >
-                  {item}
-                </span>
+                <span style={{ fontSize: 13.5, color: C.text }}>{item}</span>
               </div>
             ))}
           </div>
         </div>
 
-        <div
-          style={{
-            display: "flex",
-            alignItems: "flex-start",
-            gap: 8,
-            padding: "2px 4px",
-          }}
-        >
-          <DocIcon
-            size={14}
-            color={C.faint}
-            style={{
-              marginTop: 2,
-              flexShrink: 0,
-            }}
-          />
-
-          <p
-            style={{
-              fontSize: 11.5,
-              color: C.faint,
-              lineHeight: 1.6,
-              margin: 0,
-            }}
-          >
-            O VALE? fornece uma análise
-            de referência e não substitui
-            uma avaliação profissional do
-            veículo.
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "2px 4px" }}>
+          <DocIcon size={14} color={C.faint} style={{ marginTop: 2, flexShrink: 0 }} />
+          <p style={{ fontSize: 11.5, color: C.faint, lineHeight: 1.6, margin: 0 }}>
+            O VALE? fornece uma análise de referência e não substitui uma avaliação profissional do veículo.
           </p>
         </div>
       </div>
 
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: 10,
-          marginTop: 16,
-        }}
-      >
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 16 }}>
         <PrimaryButton
           onClick={handleShare}
-          icon={
-            <ShareIcon
-              size={18}
-              color="#171006"
-              strokeWidth={2}
-            />
-          }
+          icon={<ShareIcon size={18} color="#171006" strokeWidth={2} />}
         >
           Compartilhar análise
         </PrimaryButton>
-
-        <SecondaryButton
-          onClick={onRestart}
-        >
-          Nova análise
-        </SecondaryButton>
+        <SecondaryButton onClick={onRestart}>Nova análise</SecondaryButton>
       </div>
 
       <Toast message={toast} />
     </div>
   );
 }
+
 
 // ---------------------------------------------------------------------------
 // Paywall
