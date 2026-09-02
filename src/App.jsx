@@ -193,6 +193,39 @@ async function supaSignIn(email, password) {
   return res.json();
 }
 
+async function supaSendPasswordRecovery(email) {
+  const res = await fetch(
+    `${SUPABASE_CONFIG.URL}/auth/v1/recover`,
+    {
+      method: "POST",
+      headers: supaAuthHeaders(),
+      body: JSON.stringify({
+        email,
+        redirect_to: window.location.origin,
+      }),
+    }
+  );
+
+  if (!res.ok) throw await supaParseAuthError(res);
+
+  return res.json();
+}
+
+async function supaUpdatePassword(accessToken, password) {
+  const res = await fetch(
+    `${SUPABASE_CONFIG.URL}/auth/v1/user`,
+    {
+      method: "PUT",
+      headers: supaAuthHeaders(accessToken),
+      body: JSON.stringify({ password }),
+    }
+  );
+
+  if (!res.ok) throw await supaParseAuthError(res);
+
+  return res.json();
+}
+
 async function supaRefreshSession(refreshToken) {
   const res = await fetch(
     `${SUPABASE_CONFIG.URL}/auth/v1/token?grant_type=refresh_token`,
@@ -1634,37 +1667,24 @@ function LoadingScreen() {
 function AuthScreen({
   onSignUp,
   onSignIn,
+  onForgotPassword,
 }) {
-  const [mode, setMode] =
-    useState("signup");
-
-  const [name, setName] =
-    useState("");
-
-  const [email, setEmail] =
-    useState("");
-
-  const [password, setPassword] =
-    useState("");
-
-  const [loading, setLoading] =
-    useState(false);
-
-  const [error, setError] =
-    useState("");
-
-  const [
-    awaitingConfirmation,
-    setAwaitingConfirmation,
-  ] = useState(false);
+  const [mode, setMode] = useState("signup");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [awaitingConfirmation, setAwaitingConfirmation] = useState(false);
+  const [recoverySent, setRecoverySent] = useState(false);
 
   const isSignup = mode === "signup";
+  const isForgot = mode === "forgot";
 
   const canSubmit =
-    (!isSignup ||
-      name.trim().length > 0) &&
     email.trim().length > 3 &&
-    password.length >= 6 &&
+    (isForgot || password.length >= 6) &&
+    (!isSignup || name.trim().length > 0) &&
     !loading;
 
   const handleSubmit = async () => {
@@ -1674,24 +1694,21 @@ function AuthScreen({
     setError("");
 
     try {
-      if (isSignup) {
+      if (isForgot) {
+        await onForgotPassword(email.trim());
+        setRecoverySent(true);
+      } else if (isSignup) {
         const result = await onSignUp(
           name.trim(),
           email.trim(),
           password
         );
 
-        if (
-          !result ||
-          !result.confirmed
-        ) {
+        if (!result || !result.confirmed) {
           setAwaitingConfirmation(true);
         }
       } else {
-        await onSignIn(
-          email.trim(),
-          password
-        );
+        await onSignIn(email.trim(), password);
       }
     } catch (e) {
       setError(
@@ -1715,16 +1732,14 @@ function AuthScreen({
           textAlign: "center",
           gap: 18,
           padding: "0 24px 28px",
-          animation:
-            "vale-fade-in 380ms ease",
+          animation: "vale-fade-in 380ms ease",
         }}
       >
         <Logo size={36} />
 
         <h1
           style={{
-            fontFamily:
-              "'Rajdhani', sans-serif",
+            fontFamily: "'Rajdhani', sans-serif",
             fontWeight: 700,
             fontSize: 22,
             color: C.text,
@@ -1745,25 +1760,79 @@ function AuthScreen({
             lineHeight: 1.6,
           }}
         >
-          Enviamos um link de confirmação
-          para{" "}
-          <strong
-            style={{
-              color: C.text,
-            }}
-          >
+          Enviamos um link de confirmação para{" "}
+          <strong style={{ color: C.text }}>
             {email.trim()}
           </strong>
-          . Confirme para poder entrar
-          no VALE?.
+          . Confirme para poder entrar no VALE?.
         </p>
 
         <GhostLink
           onClick={() => {
-            setAwaitingConfirmation(
-              false
-            );
+            setAwaitingConfirmation(false);
             setMode("login");
+            setPassword("");
+          }}
+        >
+          Voltar para o login
+        </GhostLink>
+      </div>
+    );
+  }
+
+  if (recoverySent) {
+    return (
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "center",
+          alignItems: "center",
+          textAlign: "center",
+          gap: 18,
+          padding: "0 24px 28px",
+          animation: "vale-fade-in 380ms ease",
+        }}
+      >
+        <Logo size={36} />
+
+        <h1
+          style={{
+            fontFamily: "'Rajdhani', sans-serif",
+            fontWeight: 700,
+            fontSize: 22,
+            color: C.text,
+            margin: 0,
+            maxWidth: 300,
+            lineHeight: 1.3,
+          }}
+        >
+          Confira seu e-mail
+        </h1>
+
+        <p
+          style={{
+            fontSize: 14,
+            color: C.muted,
+            margin: 0,
+            maxWidth: 310,
+            lineHeight: 1.6,
+          }}
+        >
+          Se existir uma conta com{" "}
+          <strong style={{ color: C.text }}>
+            {email.trim()}
+          </strong>
+          , enviamos um link para criar uma nova senha.
+          Abra o link neste dispositivo.
+        </p>
+
+        <GhostLink
+          onClick={() => {
+            setRecoverySent(false);
+            setMode("login");
+            setError("");
             setPassword("");
           }}
         >
@@ -1781,8 +1850,7 @@ function AuthScreen({
         flexDirection: "column",
         justifyContent: "space-between",
         padding: "0 24px 28px",
-        animation:
-          "vale-fade-in 380ms ease",
+        animation: "vale-fade-in 380ms ease",
       }}
     >
       <div
@@ -1820,20 +1888,14 @@ function AuthScreen({
                 borderRadius: 999,
               }}
             >
-              <ZapIcon
-                size={12}
-                color={C.green}
-              />
-
-              3 análises grátis, sem
-              compromisso
+              <ZapIcon size={12} color={C.green} />
+              3 análises grátis, sem compromisso
             </div>
           )}
 
           <h1
             style={{
-              fontFamily:
-                "'Rajdhani', sans-serif",
+              fontFamily: "'Rajdhani', sans-serif",
               fontWeight: 700,
               fontSize: 27,
               color: C.text,
@@ -1844,6 +1906,8 @@ function AuthScreen({
           >
             {isSignup
               ? "Crie sua conta grátis."
+              : isForgot
+              ? "Recupere sua senha."
               : "Bem-vindo de volta."}
           </h1>
 
@@ -1852,12 +1916,14 @@ function AuthScreen({
               fontSize: 14.5,
               color: C.muted,
               margin: 0,
-              maxWidth: 290,
+              maxWidth: 310,
               lineHeight: 1.6,
             }}
           >
             {isSignup
               ? "Faça suas análises e descubra se o preço daquele carro realmente vale a pena."
+              : isForgot
+              ? "Digite seu e-mail e enviaremos um link para você criar uma nova senha."
               : "Entre para continuar suas análises de onde parou."}
           </p>
         </div>
@@ -1874,9 +1940,7 @@ function AuthScreen({
             <Field label="Nome">
               <TextField
                 value={name}
-                onChange={(e) =>
-                  setName(e.target.value)
-                }
+                onChange={(e) => setName(e.target.value)}
                 placeholder="Seu nome"
                 autoComplete="name"
               />
@@ -1886,30 +1950,26 @@ function AuthScreen({
           <Field label="E-mail">
             <TextField
               value={email}
-              onChange={(e) =>
-                setEmail(e.target.value)
-              }
+              onChange={(e) => setEmail(e.target.value)}
               placeholder="voce@email.com"
               inputMode="email"
               autoComplete="email"
             />
           </Field>
 
-          <Field label="Senha">
-            <TextField
-              value={password}
-              onChange={(e) =>
-                setPassword(e.target.value)
-              }
-              placeholder="Mínimo 6 caracteres"
-              type="password"
-              autoComplete={
-                isSignup
-                  ? "new-password"
-                  : "current-password"
-              }
-            />
-          </Field>
+          {!isForgot && (
+            <Field label="Senha">
+              <TextField
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Mínimo 6 caracteres"
+                type="password"
+                autoComplete={
+                  isSignup ? "new-password" : "current-password"
+                }
+              />
+            </Field>
+          )}
 
           {error && (
             <p
@@ -1937,35 +1997,205 @@ function AuthScreen({
         <PrimaryButton
           onClick={handleSubmit}
           disabled={!canSubmit}
-          icon={
-            <ZapIcon
-              size={17}
-              color="#171006"
-            />
-          }
+          icon={<ZapIcon size={17} color="#171006" />}
         >
           {loading
             ? "Um instante…"
             : isSignup
             ? "Criar conta"
+            : isForgot
+            ? "Enviar link"
             : "Entrar"}
         </PrimaryButton>
+
+        {!isSignup && !isForgot && (
+          <GhostLink
+            onClick={() => {
+              setMode("forgot");
+              setError("");
+              setPassword("");
+            }}
+          >
+            Esqueci minha senha
+          </GhostLink>
+        )}
 
         <GhostLink
           onClick={() => {
             setMode(
-              isSignup
+              isForgot
+                ? "login"
+                : isSignup
                 ? "login"
                 : "signup"
             );
             setError("");
+            setPassword("");
           }}
         >
-          {isSignup
+          {isForgot
+            ? "Voltar para o login"
+            : isSignup
             ? "Já tem conta? Entrar"
             : "Não tem conta? Criar uma"}
         </GhostLink>
       </div>
+    </div>
+  );
+}
+
+function ResetPasswordScreen({ onUpdatePassword }) {
+  const [password, setPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const canSubmit =
+    password.length >= 6 &&
+    confirmation.length >= 6 &&
+    password === confirmation &&
+    !loading;
+
+  const handleSubmit = async () => {
+    if (!canSubmit) return;
+
+    setLoading(true);
+    setError("");
+
+    try {
+      await onUpdatePassword(password);
+    } catch (e) {
+      setError(
+        e.message ||
+          "Não foi possível atualizar sua senha."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div
+      style={{
+        flex: 1,
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
+        padding: "0 24px 28px",
+        animation: "vale-fade-in 380ms ease",
+      }}
+    >
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "center",
+          gap: 22,
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            textAlign: "center",
+            gap: 18,
+          }}
+        >
+          <Logo size={40} />
+
+          <h1
+            style={{
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 700,
+              fontSize: 27,
+              color: C.text,
+              margin: 0,
+              maxWidth: 300,
+              lineHeight: 1.3,
+            }}
+          >
+            Crie uma nova senha.
+          </h1>
+
+          <p
+            style={{
+              fontSize: 14.5,
+              color: C.muted,
+              margin: 0,
+              maxWidth: 310,
+              lineHeight: 1.6,
+            }}
+          >
+            Escolha uma senha com pelo menos 6 caracteres para
+            voltar a acessar sua conta.
+          </p>
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 12,
+          }}
+        >
+          <Field label="Nova senha">
+            <TextField
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Mínimo 6 caracteres"
+              type="password"
+              autoComplete="new-password"
+            />
+          </Field>
+
+          <Field label="Confirmar nova senha">
+            <TextField
+              value={confirmation}
+              onChange={(e) => setConfirmation(e.target.value)}
+              placeholder="Digite novamente"
+              type="password"
+              autoComplete="new-password"
+            />
+          </Field>
+
+          {password.length >= 6 &&
+            confirmation.length >= 6 &&
+            password !== confirmation && (
+              <p
+                style={{
+                  fontSize: 12.5,
+                  color: C.red,
+                  margin: 0,
+                }}
+              >
+                As senhas não são iguais.
+              </p>
+            )}
+
+          {error && (
+            <p
+              style={{
+                fontSize: 12.5,
+                color: C.red,
+                margin: 0,
+                lineHeight: 1.5,
+              }}
+            >
+              {error}
+            </p>
+          )}
+        </div>
+      </div>
+
+      <PrimaryButton
+        onClick={handleSubmit}
+        disabled={!canSubmit}
+        icon={<CheckIcon size={17} color="#171006" />}
+      >
+        {loading ? "Atualizando…" : "Salvar nova senha"}
+      </PrimaryButton>
     </div>
   );
 }
@@ -3733,6 +3963,9 @@ export default function App() {
   const [session, setSession] =
     useState(null);
 
+  const [recoverySession, setRecoverySession] =
+    useState(null);
+
   const [profile, setProfile] =
     useState(null);
 
@@ -3743,6 +3976,39 @@ export default function App() {
     let mounted = true;
 
     (async () => {
+      const hash = window.location.hash.replace(/^#/, "");
+      const hashParams = new URLSearchParams(hash);
+
+      if (hashParams.get("type") === "recovery") {
+        const accessToken = hashParams.get("access_token");
+        const refreshToken = hashParams.get("refresh_token");
+        const expiresAt = Number(hashParams.get("expires_at"));
+
+        if (accessToken) {
+          const recovery = {
+            access_token: accessToken,
+            refresh_token: refreshToken || "",
+            expires_at:
+              Number.isFinite(expiresAt) && expiresAt > 0
+                ? expiresAt
+                : Math.floor(Date.now() / 1000) + 3600,
+          };
+
+          if (mounted) {
+            setRecoverySession(recovery);
+            setScreen("reset-password");
+          }
+
+          window.history.replaceState(
+            {},
+            document.title,
+            window.location.pathname + window.location.search
+          );
+
+          return;
+        }
+      }
+
       const cached =
         await loadCachedSession();
 
@@ -3889,6 +4155,32 @@ export default function App() {
     );
 
     await establishSession(data);
+  };
+
+  const handleForgotPassword = async (email) => {
+    await supaSendPasswordRecovery(email);
+  };
+
+  const handleUpdatePassword = async (newPassword) => {
+    if (!recoverySession?.access_token) {
+      throw new Error(
+        "O link de recuperação é inválido ou expirou. Solicite um novo link."
+      );
+    }
+
+    await supaUpdatePassword(
+      recoverySession.access_token,
+      newPassword
+    );
+
+    await clearCachedSession();
+    setRecoverySession(null);
+    setSession(null);
+    setProfile(null);
+    setForm(emptyForm);
+    setAnalysisResult(null);
+    setAnalysisError("");
+    setScreen("auth");
   };
 
   // -------------------------------------------------------------------------
@@ -4122,11 +4414,18 @@ export default function App() {
 
         {screen === "auth" && (
           <AuthScreen
-            onSignUp={
-              handleSignUp
+            onSignUp={handleSignUp}
+            onSignIn={handleSignIn}
+            onForgotPassword={
+              handleForgotPassword
             }
-            onSignIn={
-              handleSignIn
+          />
+        )}
+
+        {screen === "reset-password" && (
+          <ResetPasswordScreen
+            onUpdatePassword={
+              handleUpdatePassword
             }
           />
         )}
