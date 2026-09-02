@@ -87,7 +87,7 @@ const SUPABASE_CONFIG = {
 // ---------------------------------------------------------------------------
 const ACCESS_CONFIG = {
   FREE_ANALYSES_LIMIT: 3,
-  PRICE_LABEL: "R$ 39/mês",
+  PRICE_LABEL: "R$ 39,99/mês",
   PLAN_NAME: "VALE? PRO",
   CHECKOUT_URL: "https://pay.cakto.com.br/34qt8g9_1073973",
 };
