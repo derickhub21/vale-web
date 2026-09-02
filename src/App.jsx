@@ -878,8 +878,8 @@ function buildAnalysisResult(form, fipeData) {
 // Componentes visuais
 // ---------------------------------------------------------------------------
 function ScoreGauge({ score, tone }) {
-  const size = 200;
-  const r = 82;
+  const size = 220;
+  const r = 90;
   const cx = size / 2;
   const cy = size / 2;
 
@@ -2985,9 +2985,22 @@ function ResultScreen({
   const tone = TONE[result.verdictTone];
   const diffLabel = `${result.diffPct >= 0 ? "+" : ""}${result.diffPct.toFixed(1)}%`;
   const priceGap = result.referencePrice - result.priceNum;
-  const gapLabel = priceGap > 0 ? "abaixo da FIPE" : priceGap < 0 ? "acima da FIPE" : "igual à FIPE";
+  const gapLabel =
+    priceGap > 0
+      ? "abaixo da FIPE"
+      : priceGap < 0
+      ? "acima da FIPE"
+      : "igual à FIPE";
   const gapAbs = Math.abs(priceGap);
-  const gapColor = priceGap > 0 ? C.green : priceGap < 0 ? C.red : C.amber;
+  const gapColor =
+    priceGap > 0 ? C.green : priceGap < 0 ? C.red : C.amber;
+  const priceRatio = Math.min(
+    Math.max(
+      (result.priceNum / Math.max(result.referencePrice, 1)) * 100,
+      4
+    ),
+    100
+  );
 
   return (
     <div
@@ -2995,7 +3008,7 @@ function ResultScreen({
         flex: 1,
         display: "flex",
         flexDirection: "column",
-        padding: "0 24px 24px",
+        padding: "0 18px 22px",
         position: "relative",
         animation: "vale-slide-in 320ms ease",
       }}
@@ -3008,57 +3021,97 @@ function ResultScreen({
           overflowY: "auto",
           display: "flex",
           flexDirection: "column",
-          gap: 14,
+          gap: 12,
           paddingBottom: 4,
+          scrollbarWidth: "thin",
         }}
       >
-        {/* Veículo analisado */}
+        {/* Identificação do veículo */}
         <div
           style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 12,
-            padding: "4px 2px 2px",
+            position: "relative",
+            overflow: "hidden",
+            padding: 15,
+            borderRadius: 20,
+            background: `linear-gradient(135deg, ${C.surfaceRaised}, ${C.surface})`,
+            border: `1px solid ${C.borderStrong}`,
+            boxShadow: `0 12px 30px ${C.bg}70`,
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 11, minWidth: 0 }}>
+          <div
+            style={{
+              position: "absolute",
+              width: 130,
+              height: 130,
+              borderRadius: "50%",
+              right: -55,
+              top: -75,
+              background: `${C.gold}09`,
+              filter: "blur(2px)",
+              pointerEvents: "none",
+            }}
+          />
+
+          <div style={{ display: "flex", alignItems: "center", gap: 12, position: "relative" }}>
             <div
               style={{
-                width: 44,
-                height: 44,
-                minWidth: 44,
-                borderRadius: 14,
-                background: `linear-gradient(145deg, ${C.surfaceRaised}, ${C.surfaceInput})`,
-                border: `1px solid ${C.borderStrong}`,
+                width: 48,
+                height: 48,
+                minWidth: 48,
+                borderRadius: 15,
+                background: `linear-gradient(145deg, ${C.gold}18, ${C.surfaceInput})`,
+                border: `1px solid ${C.gold}35`,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                boxShadow: `0 8px 24px ${C.bg}88`,
+                boxShadow: `0 8px 22px ${C.bg}80`,
               }}
             >
-              <CarIcon size={21} color={C.gold} />
+              <CarIcon size={23} color={C.gold} />
             </div>
 
-            <div style={{ minWidth: 0 }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
               <div
                 style={{
-                  fontSize: 10.5,
-                  color: C.faint,
-                  textTransform: "uppercase",
-                  letterSpacing: 1.4,
-                  fontWeight: 700,
-                  marginBottom: 2,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 7,
+                  marginBottom: 3,
                 }}
               >
-                Veículo analisado
+                <span
+                  style={{
+                    fontSize: 9.5,
+                    color: C.gold,
+                    textTransform: "uppercase",
+                    letterSpacing: 1.5,
+                    fontWeight: 800,
+                  }}
+                >
+                  Veículo analisado
+                </span>
+                <span
+                  style={{
+                    fontSize: 9,
+                    color: C.faint,
+                    padding: "3px 6px",
+                    borderRadius: 6,
+                    border: `1px solid ${C.border}`,
+                    background: C.surfaceInput,
+                    fontFamily: "'JetBrains Mono', monospace",
+                  }}
+                >
+                  {result.fipe.modelYear}
+                </span>
               </div>
+
               <div
                 style={{
                   fontFamily: "'Rajdhani', sans-serif",
-                  fontWeight: 700,
+                  fontWeight: 800,
                   fontSize: 19,
                   color: C.text,
+                  lineHeight: 1.1,
                   whiteSpace: "nowrap",
                   overflow: "hidden",
                   textOverflow: "ellipsis",
@@ -3066,168 +3119,234 @@ function ResultScreen({
               >
                 {result.fipe.brand} {result.fipe.model}
               </div>
-            </div>
-          </div>
 
-          <div
-            style={{
-              flexShrink: 0,
-              padding: "6px 9px",
-              borderRadius: 9,
-              background: C.surfaceInput,
-              border: `1px solid ${C.border}`,
-              color: C.muted,
-              fontSize: 11,
-              fontFamily: "'JetBrains Mono', monospace",
-            }}
-          >
-            {result.fipe.modelYear}
+              <div style={{ marginTop: 6, color: C.faint, fontSize: 10.5 }}>
+                {result.kmNum.toLocaleString("pt-BR")} km • {result.fipe.fuel || "Flex"}
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* Hero do resultado */}
+        {/* HERO — avaliação */}
         <div
           style={{
             position: "relative",
             overflow: "hidden",
-            background: `radial-gradient(circle at 50% 8%, ${tone.fg}12 0, transparent 42%), linear-gradient(160deg, ${C.surfaceRaised}, ${C.surface})`,
-            border: `1px solid ${tone.fg}30`,
-            borderRadius: 24,
-            padding: "22px 18px 20px",
+            background: `
+              radial-gradient(circle at 50% 30%, ${tone.fg}17 0, transparent 34%),
+              radial-gradient(circle at 50% 100%, ${C.gold}07 0, transparent 42%),
+              linear-gradient(160deg, ${C.surfaceRaised}, ${C.surface})
+            `,
+            border: `1px solid ${tone.fg}45`,
+            borderRadius: 26,
+            padding: "18px 16px 19px",
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
-            boxShadow: `0 18px 50px ${C.bg}99, inset 0 1px 0 ${C.text}08`,
+            boxShadow: `0 22px 60px ${tone.fg}10, 0 12px 35px ${C.bg}90, inset 0 1px 0 ${C.text}0c`,
             animation: "vale-fade-in 420ms ease",
           }}
         >
           <div
             style={{
-              position: "absolute",
-              top: 14,
-              left: 14,
-              right: 14,
+              width: "100%",
               display: "flex",
+              alignItems: "center",
               justifyContent: "space-between",
-              pointerEvents: "none",
+              marginBottom: 1,
             }}
           >
-            <span style={{ fontSize: 9.5, color: C.faint, letterSpacing: 1.5, textTransform: "uppercase" }}>
+            <span
+              style={{
+                color: C.faint,
+                fontSize: 9.5,
+                textTransform: "uppercase",
+                letterSpacing: 1.5,
+                fontWeight: 800,
+              }}
+            >
               Avaliação VALE?
             </span>
-            <span style={{ fontSize: 9.5, color: C.faint, letterSpacing: 1.2 }}>
-              0 — 10
+            <span
+              style={{
+                color: C.faint,
+                fontSize: 9,
+                fontFamily: "'JetBrains Mono', monospace",
+              }}
+            >
+              ANÁLISE CONCLUÍDA
             </span>
           </div>
 
-          <div style={{ marginTop: 7 }}>
+          <div
+            style={{
+              margin: "-3px 0 -7px",
+              transform: "scale(1.08)",
+              transformOrigin: "center",
+            }}
+          >
             <ScoreGauge score={result.score} tone={result.verdictTone} />
           </div>
 
           <div
             style={{
-              marginTop: 3,
+              marginTop: 2,
               display: "inline-flex",
               alignItems: "center",
               gap: 8,
               background: tone.bg,
               color: tone.fg,
-              border: `1px solid ${tone.fg}45`,
-              padding: "9px 18px",
+              border: `1px solid ${tone.fg}55`,
+              padding: "9px 19px",
               borderRadius: 999,
               fontFamily: "'Rajdhani', sans-serif",
-              fontWeight: 800,
+              fontWeight: 900,
               fontSize: 15,
-              letterSpacing: 1.1,
-              boxShadow: `0 0 22px ${tone.fg}18`,
+              letterSpacing: 1.15,
+              boxShadow: `0 0 28px ${tone.fg}18`,
             }}
           >
             {result.verdictTone === "bad" ? (
-              <AlertTriangleIcon size={15} color={tone.fg} strokeWidth={2.2} />
+              <AlertTriangleIcon size={15} color={tone.fg} strokeWidth={2.3} />
             ) : (
-              <CheckIcon size={15} color={tone.fg} strokeWidth={2.6} />
+              <CheckIcon size={15} color={tone.fg} strokeWidth={2.8} />
             )}
             {result.verdictLabel}
           </div>
 
-          <p
+          <div
             style={{
-              margin: "13px 4px 0",
-              maxWidth: 470,
-              textAlign: "center",
+              marginTop: 13,
+              width: "100%",
+              padding: "11px 13px",
+              borderRadius: 13,
+              background: `${C.bg}45`,
+              border: `1px solid ${C.border}`,
               color: C.muted,
-              fontSize: 13,
+              fontSize: 12,
               lineHeight: 1.55,
+              textAlign: "center",
             }}
           >
             {result.verdictText}
-          </p>
+          </div>
         </div>
 
-        {/* Comparativo de preço */}
+        {/* Comparativo — destaque financeiro */}
         <div
           style={{
-            background: C.surfaceRaised,
-            border: `1px solid ${C.border}`,
-            borderRadius: 20,
+            position: "relative",
             overflow: "hidden",
+            background: `linear-gradient(145deg, ${C.surfaceRaised}, ${C.surface})`,
+            border: `1px solid ${gapColor}32`,
+            borderRadius: 22,
             animation: "vale-fade-in 460ms ease",
+            boxShadow: `0 12px 32px ${C.bg}70`,
           }}
         >
           <div
             style={{
-              padding: "15px 17px 13px",
+              padding: "15px 16px 12px",
+              borderBottom: `1px solid ${C.border}`,
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
-              gap: 12,
-              borderBottom: `1px solid ${C.border}`,
+              gap: 10,
             }}
           >
             <div>
-              <div style={{ fontSize: 10.5, color: C.faint, textTransform: "uppercase", letterSpacing: 1.3, fontWeight: 700 }}>
+              <div
+                style={{
+                  color: C.gold,
+                  fontSize: 9.5,
+                  textTransform: "uppercase",
+                  letterSpacing: 1.5,
+                  fontWeight: 900,
+                }}
+              >
                 Comparativo de mercado
               </div>
-              <div style={{ fontSize: 13, color: C.muted, marginTop: 3 }}>
+              <div style={{ color: C.muted, fontSize: 11.5, marginTop: 3 }}>
                 Preço anunciado × referência FIPE
               </div>
             </div>
+
             <div
               style={{
-                padding: "5px 9px",
-                borderRadius: 999,
-                background: `${gapColor}12`,
-                border: `1px solid ${gapColor}30`,
+                minWidth: 62,
+                textAlign: "center",
+                padding: "6px 8px",
+                borderRadius: 10,
+                background: `${gapColor}13`,
+                border: `1px solid ${gapColor}38`,
                 color: gapColor,
+                fontFamily: "'JetBrains Mono', monospace",
                 fontSize: 11,
-                fontWeight: 800,
+                fontWeight: 900,
               }}
             >
               {diffLabel}
             </div>
           </div>
 
-          <div style={{ padding: "16px 17px 15px" }}>
+          <div style={{ padding: "17px 16px 15px" }}>
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "1fr auto 1fr",
-                alignItems: "center",
-                gap: 10,
+                gridTemplateColumns: "1fr 28px 1fr",
+                alignItems: "end",
+                gap: 5,
               }}
             >
               <div>
-                <div style={{ color: C.faint, fontSize: 11, marginBottom: 4 }}>Anunciado</div>
-                <div style={{ color: C.text, fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, fontSize: 19 }}>
+                <div style={{ color: C.faint, fontSize: 10.5, marginBottom: 5 }}>
+                  VOCÊ ENCONTROU
+                </div>
+                <div
+                  style={{
+                    color: C.text,
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontWeight: 900,
+                    fontSize: 21,
+                    letterSpacing: -0.5,
+                  }}
+                >
                   {fmtBRL(result.priceNum)}
                 </div>
               </div>
 
-              <div style={{ color: C.faint, fontSize: 18 }}>×</div>
+              <div
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 9,
+                  alignSelf: "center",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: C.faint,
+                  background: C.surfaceInput,
+                  border: `1px solid ${C.border}`,
+                  fontSize: 12,
+                  fontWeight: 900,
+                }}
+              >
+                ×
+              </div>
 
               <div style={{ textAlign: "right" }}>
-                <div style={{ color: C.faint, fontSize: 11, marginBottom: 4 }}>Referência FIPE</div>
-                <div style={{ color: C.text, fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, fontSize: 19 }}>
+                <div style={{ color: C.faint, fontSize: 10.5, marginBottom: 5 }}>
+                  REFERÊNCIA FIPE
+                </div>
+                <div
+                  style={{
+                    color: C.text,
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontWeight: 900,
+                    fontSize: 21,
+                    letterSpacing: -0.5,
+                  }}
+                >
                   {fmtBRL(result.referencePrice)}
                 </div>
               </div>
@@ -3235,67 +3354,86 @@ function ResultScreen({
 
             <div
               style={{
-                height: 7,
-                marginTop: 16,
+                marginTop: 17,
+                height: 10,
                 borderRadius: 99,
                 background: C.surfaceInput,
                 border: `1px solid ${C.border}`,
                 overflow: "hidden",
+                boxShadow: `inset 0 2px 5px ${C.bg}60`,
               }}
             >
               <div
                 style={{
-                  width: `${Math.min(Math.max((result.priceNum / Math.max(result.referencePrice, 1)) * 100, 3), 100)}%`,
+                  width: `${priceRatio}%`,
                   height: "100%",
                   borderRadius: 99,
                   background: `linear-gradient(90deg, ${gapColor}, ${gapColor}99)`,
-                  boxShadow: `0 0 12px ${gapColor}44`,
-                  transition: "width 800ms ease",
+                  boxShadow: `0 0 16px ${gapColor}55`,
+                  transition: "width 900ms ease",
                 }}
               />
             </div>
 
             <div
               style={{
-                marginTop: 11,
+                marginTop: 12,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
-                gap: 10,
+                gap: 8,
               }}
             >
-              <span style={{ color: C.muted, fontSize: 11.5 }}>{gapLabel}</span>
-              <span style={{ color: gapColor, fontFamily: "'JetBrains Mono', monospace", fontSize: 12, fontWeight: 700 }}>
+              <div style={{ color: gapColor, fontSize: 11.5, fontWeight: 800 }}>
+                {gapLabel}
+              </div>
+              <div
+                style={{
+                  color: gapColor,
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: 11.5,
+                  fontWeight: 900,
+                  textAlign: "right",
+                }}
+              >
                 {gapAbs > 0 ? `${fmtBRL(gapAbs)} de diferença` : "Sem diferença"}
-              </span>
+              </div>
             </div>
 
             <div
               style={{
-                marginTop: 13,
+                marginTop: 14,
+                padding: "10px 11px",
+                borderRadius: 12,
+                background: `${gapColor}08`,
+                border: `1px solid ${gapColor}20`,
                 display: "flex",
                 alignItems: "center",
-                gap: 7,
-                flexWrap: "wrap",
-                fontSize: 10.5,
-                color: C.faint,
+                justifyContent: "space-between",
+                gap: 8,
               }}
             >
-              <span
+              <span style={{ color: C.faint, fontSize: 9.5, textTransform: "uppercase", letterSpacing: 1.1 }}>
+                Referência atual
+              </span>
+              <span style={{ color: C.muted, fontSize: 10.5, textAlign: "right" }}>
+                FIPE • {result.fipe.referenceMonth}
+              </span>
+            </div>
+
+            {result.fipe.codeFipe && (
+              <div
                 style={{
-                  background: C.surfaceInput,
-                  border: `1px solid ${C.border}`,
-                  borderRadius: 999,
-                  padding: "4px 9px",
-                  letterSpacing: 0.5,
-                  color: C.muted,
+                  marginTop: 7,
+                  textAlign: "right",
+                  color: C.faint,
+                  fontSize: 9,
+                  fontFamily: "'JetBrains Mono', monospace",
                 }}
               >
-                REFERÊNCIA FIPE
-              </span>
-              <span>FIPE • {result.fipe.referenceMonth}</span>
-              {result.fipe.codeFipe && <span>• Cód. {result.fipe.codeFipe}</span>}
-            </div>
+                Cód. FIPE {result.fipe.codeFipe}
+              </div>
+            )}
           </div>
         </div>
 
@@ -3309,125 +3447,272 @@ function ResultScreen({
           }}
         >
           {result.indicators.map((ind) => (
-            <IndicatorChip
+            <div
               key={ind.key}
-              icon={ind.Icon}
-              label={ind.label}
-              value={ind.value}
-              tone={ind.tone}
-            />
+              style={{
+                minHeight: 88,
+                padding: 13,
+                borderRadius: 17,
+                background: `linear-gradient(145deg, ${C.surfaceRaised}, ${C.surface})`,
+                border: `1px solid ${TONE[ind.tone].fg}28`,
+                boxShadow: `0 8px 24px ${C.bg}55`,
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "space-between",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div
+                  style={{
+                    width: 30,
+                    height: 30,
+                    borderRadius: 10,
+                    background: TONE[ind.tone].bg,
+                    border: `1px solid ${TONE[ind.tone].fg}25`,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <ind.Icon size={15} color={TONE[ind.tone].fg} strokeWidth={2} />
+                </div>
+
+                <span
+                  style={{
+                    width: 7,
+                    height: 7,
+                    borderRadius: "50%",
+                    background: TONE[ind.tone].fg,
+                    boxShadow: `0 0 9px ${TONE[ind.tone].fg}88`,
+                  }}
+                />
+              </div>
+
+              <div style={{ marginTop: 10 }}>
+                <div
+                  style={{
+                    color: C.faint,
+                    fontSize: 9.5,
+                    textTransform: "uppercase",
+                    letterSpacing: 1.1,
+                    fontWeight: 800,
+                  }}
+                >
+                  {ind.label}
+                </div>
+                <div
+                  style={{
+                    color: TONE[ind.tone].fg,
+                    fontFamily: "'Rajdhani', sans-serif",
+                    fontSize: 14,
+                    fontWeight: 800,
+                    marginTop: 2,
+                  }}
+                >
+                  {ind.value}
+                </div>
+              </div>
+            </div>
           ))}
         </div>
 
-        {/* Veredito */}
+        {/* Nosso veredito */}
         <div
           style={{
-            background: `linear-gradient(145deg, ${C.surfaceRaised}, ${C.surface})`,
-            border: `1px solid ${C.gold}25`,
-            borderRadius: 20,
-            padding: 18,
+            position: "relative",
+            overflow: "hidden",
+            background: `linear-gradient(145deg, ${C.gold}0b, ${C.surfaceRaised}, ${C.surface})`,
+            border: `1px solid ${C.gold}32`,
+            borderRadius: 21,
+            padding: 17,
             animation: "vale-fade-in 540ms ease",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 10 }}>
+          <div
+            style={{
+              position: "absolute",
+              right: -35,
+              bottom: -45,
+              width: 130,
+              height: 130,
+              borderRadius: "50%",
+              border: `1px solid ${C.gold}12`,
+              pointerEvents: "none",
+            }}
+          />
+
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 11 }}>
             <div
               style={{
-                width: 30,
-                height: 30,
-                borderRadius: 10,
-                background: `${C.gold}12`,
-                border: `1px solid ${C.gold}25`,
+                width: 34,
+                height: 34,
+                borderRadius: 11,
+                background: `${C.gold}15`,
+                border: `1px solid ${C.gold}32`,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
               }}
             >
-              <BulbIcon size={16} color={C.gold} strokeWidth={1.8} />
+              <BulbIcon size={17} color={C.gold} strokeWidth={1.9} />
             </div>
             <div>
-              <div style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 800, fontSize: 14.5, letterSpacing: 1, color: C.text, textTransform: "uppercase" }}>
+              <div
+                style={{
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 900,
+                  fontSize: 15,
+                  letterSpacing: 1,
+                  color: C.text,
+                  textTransform: "uppercase",
+                }}
+              >
                 Nosso veredito
               </div>
-              <div style={{ fontSize: 10.5, color: C.faint, marginTop: 1 }}>O que o resultado indica</div>
+              <div style={{ fontSize: 10, color: C.faint, marginTop: 1 }}>
+                O que esta análise indica
+              </div>
             </div>
           </div>
-          <p style={{ fontSize: 14, color: C.muted, lineHeight: 1.65, margin: 0 }}>
+
+          <div
+            style={{
+              padding: "12px 13px",
+              borderRadius: 13,
+              background: `${C.bg}35`,
+              border: `1px solid ${C.border}`,
+              color: C.muted,
+              fontSize: 13,
+              lineHeight: 1.65,
+            }}
+          >
             {result.verdictText}
-          </p>
+          </div>
         </div>
 
         {/* Checklist */}
         <div
           style={{
-            background: C.surfaceRaised,
-            border: `1px solid ${C.border}`,
-            borderRadius: 20,
-            padding: 18,
+            background: `linear-gradient(145deg, ${C.surfaceRaised}, ${C.surface})`,
+            border: `1px solid ${C.borderStrong}`,
+            borderRadius: 21,
+            padding: 17,
             animation: "vale-fade-in 580ms ease",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 13 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
             <div
               style={{
-                width: 30,
-                height: 30,
-                borderRadius: 10,
+                width: 34,
+                height: 34,
+                borderRadius: 11,
                 background: C.amberDim,
-                border: `1px solid ${C.amber}25`,
+                border: `1px solid ${C.amber}30`,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
               }}
             >
-              <AlertTriangleIcon size={15} color={C.amber} strokeWidth={2} />
+              <AlertTriangleIcon size={16} color={C.amber} strokeWidth={2} />
             </div>
             <div>
-              <div style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 800, fontSize: 14.5, letterSpacing: 1, color: C.text, textTransform: "uppercase" }}>
+              <div
+                style={{
+                  fontFamily: "'Rajdhani', sans-serif",
+                  fontWeight: 900,
+                  fontSize: 15,
+                  letterSpacing: 1,
+                  color: C.text,
+                  textTransform: "uppercase",
+                }}
+              >
                 Antes de comprar
               </div>
-              <div style={{ fontSize: 10.5, color: C.faint, marginTop: 1 }}>Checklist rápido</div>
+              <div style={{ fontSize: 10, color: C.faint, marginTop: 1 }}>
+                Checklist essencial
+              </div>
             </div>
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+            }}
+          >
             {[
               "Faça avaliação mecânica",
               "Verifique histórico de manutenção",
               "Faça laudo cautelar",
               "Confira documentação",
               "Faça um test-drive",
-            ].map((item) => (
-              <div key={item} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            ].map((item, index) => (
+              <div
+                key={item}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "8px 9px",
+                  borderRadius: 10,
+                  background: index % 2 === 0 ? `${C.bg}25` : "transparent",
+                }}
+              >
                 <div
                   style={{
-                    width: 21,
-                    height: 21,
-                    minWidth: 21,
+                    width: 22,
+                    height: 22,
+                    minWidth: 22,
                     borderRadius: 7,
                     background: C.greenDim,
-                    border: `1px solid ${C.green}18`,
+                    border: `1px solid ${C.green}22`,
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
                   }}
                 >
-                  <CheckIcon size={12} color={C.green} strokeWidth={2.8} />
+                  <CheckIcon size={12} color={C.green} strokeWidth={2.9} />
                 </div>
-                <span style={{ fontSize: 13.5, color: C.text }}>{item}</span>
+                <span style={{ fontSize: 12.5, color: C.text, lineHeight: 1.25 }}>
+                  {item}
+                </span>
               </div>
             ))}
           </div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "2px 4px" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            gap: 8,
+            padding: "2px 4px",
+          }}
+        >
           <DocIcon size={14} color={C.faint} style={{ marginTop: 2, flexShrink: 0 }} />
-          <p style={{ fontSize: 11.5, color: C.faint, lineHeight: 1.6, margin: 0 }}>
+          <p
+            style={{
+              fontSize: 10.5,
+              color: C.faint,
+              lineHeight: 1.55,
+              margin: 0,
+            }}
+          >
             O VALE? fornece uma análise de referência e não substitui uma avaliação profissional do veículo.
           </p>
         </div>
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 16 }}>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 9,
+          marginTop: 14,
+          paddingTop: 2,
+        }}
+      >
         <PrimaryButton
           onClick={handleShare}
           icon={<ShareIcon size={18} color="#171006" strokeWidth={2} />}
