@@ -2208,140 +2208,133 @@ function HomeScreen({
   access,
   onLogout,
 }) {
+  const remaining = access?.status === "PREMIUM" || access?.status === "ADMIN"
+    ? "Ilimitadas"
+    : `${access?.remaining ?? 0} de ${ACCESS_CONFIG.FREE_ANALYSES_LIMIT}`;
+
   return (
     <div
+      className="vale-home-page"
       style={{
         flex: 1,
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "space-between",
-        padding: "0 24px 28px",
-        animation:
-          "vale-fade-in 380ms ease",
+        padding: "18px 28px 34px",
+        animation: "vale-fade-in 380ms ease",
       }}
     >
-      <div
-        style={{
-          flex: 1,
-          display: "flex",
-          flexDirection: "column",
-          justifyContent: "center",
-          alignItems: "center",
-          textAlign: "center",
-          gap: 22,
-        }}
-      >
-        <div
-          style={{
-            width: 84,
-            height: 84,
-            borderRadius: 24,
-            background:
-              `radial-gradient(circle at 30% 25%, #2a2210, ${C.surface})`,
-            border: `1px solid ${C.border}`,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            marginBottom: 4,
-          }}
-        >
-          <GaugeSmallIcon
-            size={40}
-            color={C.gold}
-            strokeWidth={1.6}
-          />
-        </div>
+      <div className="vale-home-wrap">
+        <section className="vale-home-hero">
+          <div className="vale-home-copy">
+            <div className="vale-home-kicker">
+              <span className="vale-home-kicker-dot" />
+              ANÁLISE INTELIGENTE DE VEÍCULOS
+            </div>
 
-        <div>
-          <h1
-            style={{
-              fontFamily:
-                "'Rajdhani', sans-serif",
-              fontWeight: 700,
-              fontSize: 52,
-              letterSpacing: 1,
-              margin: 0,
-              color: C.text,
-              lineHeight: 1,
-            }}
-          >
-            VALE
-            <span style={{ color: C.gold }}>
-              ?
-            </span>
-          </h1>
-        </div>
+            <h1>
+              Antes de comprar um carro,
+              <span> descubra se vale a pena.</span>
+            </h1>
 
-        <p
-          style={{
-            fontFamily:
-              "'Rajdhani', sans-serif",
-            fontWeight: 600,
-            fontSize: 19,
-            color: C.text,
-            margin: 0,
-            maxWidth: 280,
-            lineHeight: 1.35,
-          }}
-        >
-          Antes de comprar, descubra se
-          vale a pena.
-        </p>
+            <p className="vale-home-lead">
+              Compare o preço anunciado com a referência FIPE e receba uma
+              avaliação de <strong>0 a 10</strong> para tomar uma decisão mais segura.
+            </p>
 
-        <p
-          style={{
-            fontSize: 14.5,
-            color: C.muted,
-            margin: 0,
-            maxWidth: 280,
-            lineHeight: 1.6,
-          }}
-        >
-          Analise o preço de um carro
-          usado e veja se o negócio parece
-          realmente bom.
-        </p>
+            <div className="vale-home-hero-actions">
+              <PrimaryButton
+                onClick={onStart}
+                icon={<SearchIcon size={19} color="#171006" strokeWidth={2.2} />}
+              >
+                Analisar meu carro
+              </PrimaryButton>
+              <div className="vale-home-free-note">
+                <CheckIcon size={15} color={C.green} />
+                {access?.status === "PREMIUM" || access?.status === "ADMIN"
+                  ? "Acesso ilimitado ativo"
+                  : `${access?.remaining ?? 0} análises grátis disponíveis`}
+              </div>
+            </div>
+          </div>
 
-        <AccessBadge access={access} />
-      </div>
+          <div className="vale-home-score-card">
+            <div className="vale-home-score-top">
+              <div>
+                <span>EXEMPLO DE ANÁLISE</span>
+                <strong>Toyota Corolla</strong>
+                <small>2025 • 50.000 km</small>
+              </div>
+              <div className="vale-home-score-badge">FIPE</div>
+            </div>
 
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: 14,
-        }}
-      >
-        <PrimaryButton
-          onClick={onStart}
-          icon={
-            <SearchIcon
-              size={19}
-              color="#171006"
-              strokeWidth={2.2}
-            />
-          }
-        >
-          Analisar meu carro
-        </PrimaryButton>
+            <div className="vale-home-score-main">
+              <div className="vale-home-mini-gauge">
+                <div className="vale-home-mini-ring">
+                  <span>9.2</span>
+                  <small>/10</small>
+                </div>
+              </div>
+              <div className="vale-home-score-info">
+                <span className="vale-home-good-pill">BOM NEGÓCIO</span>
+                <strong>Preço abaixo da FIPE</strong>
+                <p>Uma leitura rápida para saber se o valor anunciado merece sua atenção.</p>
+              </div>
+            </div>
 
-        <p
-          style={{
-            fontSize: 11.5,
-            color: C.faint,
-            textAlign: "center",
-            margin: 0,
-            lineHeight: 1.5,
-          }}
-        >
-          Análise de referência — não
-          substitui avaliação profissional.
-        </p>
+            <div className="vale-home-price-row">
+              <div><span>ANUNCIADO</span><strong>R$ 105.000</strong></div>
+              <div className="vale-home-price-arrow">↓</div>
+              <div><span>REFERÊNCIA FIPE</span><strong>R$ 141.075</strong></div>
+            </div>
 
-        <div style={{ textAlign: "center" }}>
-          <GhostLink onClick={onLogout}>
-            Sair
-          </GhostLink>
+            <div className="vale-home-under-fipe">
+              <TrendUpIcon size={15} color={C.green} />
+              <strong>25,6% abaixo da FIPE</strong>
+            </div>
+          </div>
+        </section>
+
+        <section className="vale-home-trust">
+          <div><GaugeSmallIcon size={20} color={C.gold} /><span><strong>Nota de 0 a 10</strong> para cada análise</span></div>
+          <div><WalletIcon size={20} color={C.gold} /><span><strong>Preço × FIPE</strong> em segundos</span></div>
+          <div><ZapIcon size={20} color={C.gold} /><span><strong>Dados reais</strong> da tabela FIPE</span></div>
+        </section>
+
+        <section className="vale-home-section">
+          <div className="vale-home-section-heading">
+            <span>COMO FUNCIONA</span>
+            <h2>Uma análise simples antes de uma decisão grande.</h2>
+          </div>
+
+          <div className="vale-home-steps">
+            {[
+              ["01", "Informe o veículo", "Escolha marca, modelo e ano diretamente da FIPE."],
+              ["02", "Informe o negócio", "Digite a quilometragem e o preço anunciado."],
+              ["03", "Receba sua avaliação", "O VALE? compara os dados e calcula sua nota."],
+            ].map(([num, title, text]) => (
+              <div className="vale-home-step" key={num}>
+                <span>{num}</span>
+                <div><strong>{title}</strong><p>{text}</p></div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="vale-home-bottom">
+          <div className="vale-home-bottom-copy">
+            <div className="vale-home-kicker">DECIDA COM MAIS INFORMAÇÃO</div>
+            <h2>Não compre no escuro.</h2>
+            <p>Uma diferença de preço pode representar milhares de reais. Consulte antes de fechar negócio.</p>
+          </div>
+          <div className="vale-home-bottom-card">
+            <div><span>SEU ACESSO</span><strong>{remaining}</strong><small>análises disponíveis</small></div>
+            <PrimaryButton onClick={onStart} icon={<CarIcon size={18} color="#171006" strokeWidth={2} />}>
+              Começar agora
+            </PrimaryButton>
+          </div>
+        </section>
+
+        <div className="vale-home-footer">
+          <span>VALE? • Análise de referência com dados FIPE</span>
+          <GhostLink onClick={onLogout}>Sair</GhostLink>
         </div>
       </div>
     </div>
@@ -4185,6 +4178,61 @@ export default function App() {
           }
         }
 
+
+        .vale-home-wrap { width: 100%; max-width: 1120px; margin: 0 auto; }
+        .vale-home-hero { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(390px, .92fr); gap: 28px; align-items: center; padding: 48px 0 34px; }
+        .vale-home-copy { padding: 18px 0; }
+        .vale-home-kicker { display: inline-flex; align-items: center; gap: 9px; color: ${C.gold}; font-family: "JetBrains Mono", monospace; font-size: 11px; font-weight: 600; letter-spacing: 1.1px; }
+        .vale-home-kicker-dot { width: 7px; height: 7px; border-radius: 50%; background: ${C.green}; box-shadow: 0 0 12px ${C.green}66; }
+        .vale-home-copy h1 { margin: 18px 0 16px; max-width: 650px; color: ${C.text}; font-family: "Rajdhani", sans-serif; font-size: clamp(46px, 5.4vw, 72px); line-height: .98; letter-spacing: -.8px; font-weight: 700; }
+        .vale-home-copy h1 span { color: ${C.gold}; }
+        .vale-home-lead { max-width: 600px; color: ${C.muted}; font-size: 17px; line-height: 1.7; margin: 0; }
+        .vale-home-lead strong { color: ${C.text}; }
+        .vale-home-hero-actions { display: flex; align-items: center; gap: 18px; margin-top: 28px; flex-wrap: wrap; }
+        .vale-home-hero-actions > button { min-width: 245px; }
+        .vale-home-free-note { display: flex; align-items: center; gap: 7px; color: ${C.muted}; font-size: 12px; }
+        .vale-home-score-card { background: linear-gradient(145deg, #15181d, #0e1014); border: 1px solid ${C.borderStrong}; border-radius: 24px; padding: 25px; box-shadow: 0 22px 60px #00000066, inset 0 1px 0 #ffffff08; }
+        .vale-home-score-top { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; padding-bottom:20px; border-bottom:1px solid ${C.border}; }
+        .vale-home-score-top span,.vale-home-score-top small,.vale-home-price-row span,.vale-home-bottom-card span { display:block; color:${C.faint}; font-family:"JetBrains Mono",monospace; font-size:9px; letter-spacing:1px; }
+        .vale-home-score-top strong { display:block; color:${C.text}; font-size:18px; margin-top:6px; }
+        .vale-home-score-top small { margin-top:4px; font-family:"Inter",sans-serif; letter-spacing:0; font-size:11px; }
+        .vale-home-score-badge { padding:7px 10px; border:1px solid ${C.goldDim}; border-radius:9px; color:${C.gold}; font-size:10px; font-family:"JetBrains Mono",monospace; }
+        .vale-home-score-main { display:flex; align-items:center; gap:22px; padding:25px 0; }
+        .vale-home-mini-gauge { width:118px; height:118px; flex:0 0 118px; border-radius:50%; padding:9px; background:conic-gradient(${C.green} 0 92%, ${C.border} 92% 100%); transform:rotate(-38deg); }
+        .vale-home-mini-ring { width:100%; height:100%; border-radius:50%; background:${C.surfaceInput}; display:flex; align-items:center; justify-content:center; flex-direction:column; transform:rotate(38deg); border:5px solid ${C.bg}; }
+        .vale-home-mini-ring span { color:${C.text}; font-family:"JetBrains Mono",monospace; font-size:29px; font-weight:600; line-height:1; }
+        .vale-home-mini-ring small { color:${C.muted}; font-size:10px; margin-top:3px; }
+        .vale-home-score-info { min-width:0; }
+        .vale-home-good-pill { display:inline-block; background:${C.greenDim}; color:${C.green}; border:1px solid #24533e; padding:6px 9px; border-radius:999px; font-family:"JetBrains Mono",monospace; font-size:9px; letter-spacing:.7px; }
+        .vale-home-score-info strong { display:block; color:${C.text}; font-size:17px; margin-top:10px; }
+        .vale-home-score-info p { color:${C.muted}; font-size:11.5px; line-height:1.5; margin:6px 0 0; }
+        .vale-home-price-row { display:grid; grid-template-columns:1fr 28px 1fr; gap:10px; align-items:center; padding:16px 0; border-top:1px solid ${C.border}; }
+        .vale-home-price-row strong { display:block; color:${C.text}; font-family:"JetBrains Mono",monospace; font-size:16px; margin-top:5px; }
+        .vale-home-price-arrow { color:${C.green}; text-align:center; font-size:18px; }
+        .vale-home-under-fipe { display:flex; align-items:center; gap:7px; color:${C.green}; background:${C.greenDim}; border:1px solid #24533e; border-radius:10px; padding:10px 12px; font-size:11px; }
+        .vale-home-trust { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; border-top:1px solid ${C.border}; border-bottom:1px solid ${C.border}; padding:17px 0; }
+        .vale-home-trust > div { display:flex; align-items:center; justify-content:center; gap:10px; color:${C.muted}; font-size:12px; text-align:center; }
+        .vale-home-trust strong { color:${C.text}; }
+        .vale-home-section { padding:58px 0 28px; }
+        .vale-home-section-heading > span { color:${C.gold}; font-family:"JetBrains Mono",monospace; font-size:10px; letter-spacing:1.2px; }
+        .vale-home-section-heading h2,.vale-home-bottom h2 { color:${C.text}; font-family:"Rajdhani",sans-serif; font-size:36px; line-height:1.05; margin:9px 0 24px; }
+        .vale-home-steps { display:grid; grid-template-columns:repeat(3,1fr); gap:13px; }
+        .vale-home-step { min-height:145px; background:${C.surface}; border:1px solid ${C.border}; border-radius:17px; padding:20px; display:flex; gap:15px; }
+        .vale-home-step > span { color:${C.gold}; font-family:"JetBrains Mono",monospace; font-size:11px; padding-top:2px; }
+        .vale-home-step strong { color:${C.text}; font-size:15px; }
+        .vale-home-step p { color:${C.muted}; font-size:12px; line-height:1.55; margin:8px 0 0; }
+        .vale-home-bottom { display:grid; grid-template-columns:1.3fr .7fr; gap:22px; align-items:center; margin-top:28px; padding:30px; border:1px solid ${C.border}; border-radius:20px; background:radial-gradient(90% 130% at 0 50%, #211a0b, ${C.surface} 62%); }
+        .vale-home-bottom h2 { margin-bottom:8px; font-size:34px; }
+        .vale-home-bottom-copy p { max-width:600px; color:${C.muted}; font-size:13px; line-height:1.6; margin:0; }
+        .vale-home-bottom-card { border:1px solid ${C.borderStrong}; background:${C.bg}aa; border-radius:15px; padding:18px; }
+        .vale-home-bottom-card strong { display:block; color:${C.text}; font-family:"JetBrains Mono",monospace; font-size:24px; margin-top:6px; }
+        .vale-home-bottom-card small { display:block; color:${C.muted}; font-size:10px; margin:3px 0 15px; }
+        .vale-home-bottom-card button { width:100%; }
+        .vale-home-footer { display:flex; justify-content:space-between; align-items:center; padding:24px 0 0; color:${C.faint}; font-size:10px; }
+        @media (max-width: 900px) { .vale-home-hero { grid-template-columns:1fr; padding-top:28px; } .vale-home-copy h1 { font-size:56px; } .vale-home-score-card { max-width:650px; } }
+        @media (max-width: 700px) { .vale-home-page { padding:8px 18px 26px !important; } .vale-home-hero { gap:18px; } .vale-home-copy h1 { font-size:46px; } .vale-home-lead { font-size:15px; } .vale-home-trust,.vale-home-steps,.vale-home-bottom { grid-template-columns:1fr; } .vale-home-trust > div { justify-content:flex-start; text-align:left; } .vale-home-section { padding-top:42px; } .vale-home-section-heading h2 { font-size:30px; } .vale-home-bottom { padding:22px; } .vale-home-score-main { gap:14px; } }
+        @media (max-width: 480px) { .vale-home-copy h1 { font-size:39px; } .vale-home-score-card { padding:18px; border-radius:18px; } .vale-home-mini-gauge { width:96px; height:96px; flex-basis:96px; } .vale-home-mini-ring span { font-size:24px; } .vale-home-score-info strong { font-size:15px; } .vale-home-hero-actions { align-items:stretch; flex-direction:column; } .vale-home-hero-actions > button { width:100%; } .vale-home-price-row strong { font-size:13px; } }
+
         .vale-result-content {
           width: 100%;
           max-width: 1132px;
@@ -4286,7 +4334,7 @@ export default function App() {
       <div
         style={{
           width: "100%",
-          maxWidth: screen === "result" ? 1180 : 430,
+          maxWidth: screen === "result" || screen === "home" ? 1180 : 430,
           minHeight: "100vh",
           display: "flex",
           flexDirection: "column",
