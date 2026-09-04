@@ -2207,6 +2207,8 @@ function HomeScreen({
   onStart,
   access,
   onLogout,
+  onNavigate,
+  onPlans,
 }) {
   const remaining = access?.status === "PREMIUM" || access?.status === "ADMIN"
     ? "Ilimitadas"
