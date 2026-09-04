@@ -3873,7 +3873,7 @@ function CompareScreen({ accessToken, onBack }) {
     <div className="vale-two-col"><VehiclePicker value={a} onChange={setA} accessToken={accessToken} label="Carro 1"/><VehiclePicker value={b} onChange={setB} accessToken={accessToken} label="Carro 2"/></div>
     {error&&<div className="vale-tool-error">{error}</div>}
     <button className="vale-tool-primary" onClick={run} disabled={loading}>{loading?"Consultando FIPE…":"Comparar veículos"}</button>
-    {comparison&&<div className="vale-compare-result"><div className="vale-compare-winner">🏆 Melhor referência de preço: <strong>Carro {comparison.winner}</strong></div><div className="vale-compare-grid"><div><span>CARRO 1</span><strong>{a.brandName} {a.modelName}</strong><b>R$ {comparison.pa.toLocaleString("pt-BR",{minimumFractionDigits:2})}</b><small>{da.referenceMonth||"FIPE"}</small></div><div><span>CARRO 2</span><strong>{b.brandName} {b.modelName}</strong><b>R$ {comparison.pb.toLocaleString("pt-BR",{minimumFractionDigits:2})}</b><small>{db.referenceMonth||"FIPE"}</small></div></div></div>}
+    {comparison&&<div className="vale-compare-result"><div className="vale-compare-winner">🏆 Melhor referência de preço: <strong>Carro {comparison.winner}</strong></div><div className="vale-compare-grid"><div><span>CARRO 1</span><strong>{a.brandName} {a.modelName}</strong><b>R$ {comparison.pa.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}</b><small>{da.referenceMonth||"FIPE"}</small></div><div><span>CARRO 2</span><strong>{b.brandName} {b.modelName}</strong><b>R$ {comparison.pb.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}</b><small>{db.referenceMonth||"FIPE"}</small></div></div></div>}
   </ToolShell>;
 }
 
@@ -3886,7 +3886,7 @@ function CostScreen({ onBack }) {
       {[["km","Quilometragem mensal","1000"],["cons","Consumo médio (km/L)","10"],["fuel","Preço do combustível (R$/L)","6"],["ipva","IPVA anual (R$)","2500"],["insurance","Seguro anual (R$)","3000"],["maint","Manutenção mensal (R$)","250"]].map(([k,l,p])=><label key={k}><span>{l}</span><input inputMode="decimal" value={{km,cons,fuel,ipva,insurance,maint}[k]} placeholder={p} onChange={e=>({km:setKm,cons:setCons,fuel:setFuel,ipva:setIpva,insurance:setInsurance,maint:setMaint}[k])(e.target.value)}/></label>)}
     </div>
     <button className="vale-tool-primary" onClick={calc}>Calcular custo estimado</button>
-    {result&&<div className="vale-cost-result"><div className="vale-cost-total"><span>ESTIMATIVA MENSAL</span><strong>R$ {result.total.toLocaleString("pt-BR",{minimumFractionDigits:2})}</strong><small>≈ R$ {result.annual.toLocaleString("pt-BR",{minimumFractionDigits:2})}/ano</small></div><div className="vale-cost-lines"><div><span>Combustível</span><b>R$ {result.monthlyFuel.toLocaleString("pt-BR",{minimumFractionDigits:2})}</b></div><div><span>IPVA</span><b>R$ {result.monthlyIpva.toLocaleString("pt-BR",{minimumFractionDigits:2})}</b></div><div><span>Seguro</span><b>R$ {result.monthlyInsurance.toLocaleString("pt-BR",{minimumFractionDigits:2})}</b></div><div><span>Manutenção</span><b>R$ {result.maint.toLocaleString("pt-BR",{minimumFractionDigits:2})}</b></div></div></div>}
+    {result&&<div className="vale-cost-result"><div className="vale-cost-total"><span>ESTIMATIVA MENSAL</span><strong>R$ {result.total.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}</strong><small>≈ R$ {result.annual.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}/ano</small></div><div className="vale-cost-lines"><div><span>Combustível</span><b>R$ {result.monthlyFuel.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}</b></div><div><span>IPVA</span><b>R$ {result.monthlyIpva.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}</b></div><div><span>Seguro</span><b>R$ {result.monthlyInsurance.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}</b></div><div><span>Manutenção</span><b>R$ {result.maint.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}</b></div></div></div>}
   </ToolShell>;
 }
 
@@ -4529,6 +4529,44 @@ export default function App() {
         .vale-check-progress{padding:18px;border:1px solid ${C.borderStrong};border-radius:16px;background:linear-gradient(160deg,#171B21,#101318);margin-bottom:14px}.vale-check-progress>div:first-child{display:flex;justify-content:space-between}.vale-check-progress span{font-size:11px;color:${C.muted}}.vale-check-progress strong{color:${C.gold};font-family:'JetBrains Mono',monospace}.vale-progress-bar{height:8px;background:${C.surfaceInput};border-radius:99px;overflow:hidden;margin-top:12px}.vale-progress-bar i{display:block;height:100%;background:linear-gradient(90deg,${C.goldDim},${C.gold});transition:.2s}.vale-check-list{display:grid;gap:8px}.vale-check-list button{display:flex;align-items:center;gap:12px;text-align:left;padding:15px;border:1px solid ${C.borderStrong};background:linear-gradient(160deg,#171B21,#101318);color:${C.text} !important;border-radius:13px;cursor:pointer;transition:.16s}.vale-check-list button:hover{border-color:${C.goldDim};transform:translateX(2px)}.vale-check-list button>span{width:25px;height:25px;border:1px solid ${C.borderStrong};background:${C.surfaceInput};border-radius:7px;display:grid;place-items:center;color:${C.gold};flex:0 0 25px}.vale-check-list button.done{border-color:${C.gold};background:rgba(190,150,50,.07)}.vale-tool-success{margin-top:14px;padding:14px;border:1px solid rgba(80,180,100,.25);color:${C.green};background:rgba(80,180,100,.08);border-radius:12px}
         .vale-ad-textarea{min-height:220px;resize:vertical;font:14px Inter,sans-serif;line-height:1.6}.vale-ad-score{padding:18px;border-bottom:1px solid ${C.border}}.vale-ad-score span{display:block;color:${C.muted}}.vale-ad-score strong{font:700 36px 'JetBrains Mono',monospace;color:${C.gold}}.vale-ad-checks{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:15px}.vale-ad-checks div{padding:14px;border:1px solid ${C.border};background:rgba(255,255,255,.015);border-radius:12px}.vale-ad-checks span{color:${C.gold};font-weight:900}.vale-ad-checks strong{display:block;margin:7px 0;color:${C.text}}.vale-ad-checks small{color:${C.muted}}.vale-ad-attention{margin-top:15px;padding:15px;border-radius:12px;background:rgba(190,150,50,.07);border:1px solid rgba(190,150,50,.14);color:${C.text}}.vale-ad-attention p{color:${C.muted}}
         .vale-plans-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.vale-plan-card{border:1px solid ${C.borderStrong};background:linear-gradient(160deg,#171B21,#0F1216);border-radius:20px;padding:22px;box-shadow:0 12px 30px rgba(0,0,0,.18);transition:.18s}.vale-plan-card:hover{transform:translateY(-2px);border-color:${C.borderStrong}}.vale-plan-card.featured{border-color:${C.gold};box-shadow:0 0 0 1px rgba(190,150,50,.18),0 16px 34px rgba(0,0,0,.22)}.vale-plan-card.proplus{background:linear-gradient(145deg,rgba(45,35,15,.72),#101318)}.vale-plan-card>span{font-size:10px;font-weight:900;letter-spacing:1px;color:${C.gold}}.vale-plan-card h2{font-family:'Rajdhani',sans-serif;font-size:28px;margin:8px 0;color:${C.text}}.vale-plan-card>strong{font:700 22px 'JetBrains Mono',monospace;color:${C.gold}}.vale-plan-card p{color:${C.muted};line-height:1.5;min-height:48px}.vale-plan-card ul{list-style:none;padding:0;display:grid;gap:8px;color:${C.muted}}.vale-plan-card li{color:${C.text}}.vale-plan-card li::first-letter{color:${C.gold}}.vale-plan-note{margin-top:15px;color:${C.muted};font-size:12px;line-height:1.5}
+        /* ------------------------------------------------------------------
+           VALE? contrast + readability polish
+           Keep the premium dark identity while preventing invisible text.
+        ------------------------------------------------------------------ */
+        .vale-tool-page{color:${C.text}}
+        .vale-tool-page *{box-sizing:border-box}
+        .vale-tool-title h1{color:${C.text} !important}
+        .vale-tool-title p,.vale-tool-topbar,.vale-plan-note{color:${C.muted} !important}
+        .vale-back-btn{color:${C.text} !important;background:${C.surfaceRaised} !important;border:1px solid ${C.borderStrong} !important}
+        .vale-picker-card,.vale-cost-grid label,.vale-check-progress,.vale-check-list button,.vale-compare-result,.vale-cost-result,.vale-ad-result,.vale-plan-card{color:${C.text} !important}
+        .vale-picker-label,.vale-picker-grid label>span,.vale-cost-grid label>span,.vale-check-list button>strong{color:${C.text} !important}
+        .vale-picker-grid span,.vale-cost-grid span{color:${C.muted} !important}
+        .vale-picker-grid select,.vale-cost-grid input,.vale-ad-textarea{color:${C.text} !important;background:${C.surfaceInput} !important;border-color:${C.borderStrong} !important}
+        .vale-picker-grid select::placeholder,.vale-cost-grid input::placeholder,.vale-ad-textarea::placeholder{color:${C.faint} !important;opacity:1}
+        .vale-picker-grid select option{color:#F5F7FA;background:#15191F}
+        .vale-compare-winner{color:${C.gold} !important}
+        .vale-compare-grid>div,.vale-ad-checks div,.vale-cost-lines div{color:${C.text} !important}
+        .vale-compare-grid span,.vale-compare-grid small,.vale-cost-total span,.vale-cost-total small,.vale-ad-score span,.vale-ad-checks small{color:${C.muted} !important}
+        .vale-compare-grid strong,.vale-cost-lines span,.vale-ad-checks strong,.vale-ad-attention strong{color:${C.text} !important}
+        .vale-compare-grid b,.vale-cost-lines b,.vale-cost-total strong,.vale-ad-score strong{color:${C.gold} !important}
+        .vale-cost-lines div{background:${C.surfaceInput} !important;border-color:${C.border} !important}
+        .vale-check-progress span{color:${C.muted} !important}
+        .vale-check-progress strong{color:${C.gold} !important}
+        .vale-check-list button>span{color:${C.gold} !important;background:${C.surfaceInput} !important;border-color:${C.borderStrong} !important}
+        .vale-check-list button.done strong{color:${C.text} !important}
+        .vale-tool-success{color:${C.green} !important}
+        .vale-ad-attention{color:${C.text} !important}
+        .vale-ad-attention p{color:${C.muted} !important}
+        .vale-plan-card h2,.vale-plan-card>strong,.vale-plan-card p,.vale-plan-card li{color:${C.text} !important}
+        .vale-plan-card>span{color:${C.gold} !important}
+        .vale-plan-card>strong{color:${C.gold} !important}
+        .vale-plan-card li::first-letter{color:${C.gold} !important}
+        .vale-plan-card .vale-tool-primary{color:#171006 !important}
+        .vale-plan-card .vale-tools-plan-btn{color:${C.text} !important;background:${C.surfaceRaised} !important;border-color:${C.borderStrong} !important}
+        .vale-tool-primary{color:#171006 !important}
+        .vale-tool-primary:disabled{color:#171006 !important}
+        .vale-tools-plan-btn{color:${C.text} !important}
+        .vale-cost-total small{font-size:12px}
         @media(max-width:900px){.vale-tools-grid{grid-template-columns:1fr 1fr}.vale-plans-grid{grid-template-columns:1fr}.vale-cost-grid{grid-template-columns:1fr 1fr}.vale-ad-checks{grid-template-columns:1fr 1fr}}
         @media(max-width:620px){.vale-tools-head,.vale-plan-preview{display:block}.vale-tools-head .vale-tools-plan-btn,.vale-plan-preview .vale-tools-plan-btn{margin-top:14px}.vale-tools-grid,.vale-two-col,.vale-compare-grid,.vale-cost-grid,.vale-ad-checks{grid-template-columns:1fr}.vale-tool-page{padding:18px}.vale-tool-title h1{font-size:36px}.vale-cost-lines{grid-template-columns:1fr}.vale-tools-section,.vale-plan-preview{padding:18px}}
       `}</style>
