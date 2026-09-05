@@ -381,6 +381,196 @@ async function fetchFipeDetail(
 }
 
 // ---------------------------------------------------------------------------
+// PBE / INMETRO — Programa Brasileiro de Etiquetagem Veicular 2026
+// ---------------------------------------------------------------------------
+// Fonte real: tabela public.vehicle_specs (839 veículos, importados do PBE
+// Veicular 2026 do INMETRO). RLS já permite SELECT público na tabela.
+//
+// REGRA DE OURO: nunca inventar nem aproximar dado do INMETRO. Uma
+// correspondência só é aceita quando marca, modelo E versão do PBE puderem
+// ser encontrados, como tokens completos, dentro do texto do veículo da
+// FIPE — e apenas quando não houver ambiguidade entre dois candidatos
+// igualmente específicos. Qualquer incerteza retorna null.
+
+// Normaliza texto para comparação seguro entre FIPE e PBE:
+// maiúsculas, sem acento, sem espaços duplicados, caracteres especiais
+// viram espaço — exceto números decimais (ex.: "2.0"), que são
+// preservados como um único token.
+function normalizePbeText(input) {
+  if (!input) return "";
+
+  let s = String(input)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
+
+  // Protege números decimais (ex.: 2.0, 1.6) antes de remover pontuação.
+  s = s.replace(/(\d)\.(\d)/g, "$1_$2");
+  s = s.replace(/[^A-Z0-9_]+/g, " ");
+  s = s.replace(/_/g, ".");
+  s = s.replace(/\s+/g, " ").trim();
+
+  return s;
+}
+
+function pbeTokens(normalized) {
+  return normalized.split(" ").filter(Boolean);
+}
+
+// Marca é comparada por igualdade normalizada ou contenção — cobre casos
+// como a FIPE trazer "GM - CHEVROLET" e o PBE trazer só "CHEVROLET".
+function pbeBrandMatches(fipeBrandNorm, pbeBrandNorm) {
+  if (!fipeBrandNorm || !pbeBrandNorm) return false;
+
+  return (
+    fipeBrandNorm === pbeBrandNorm ||
+    fipeBrandNorm.includes(pbeBrandNorm) ||
+    pbeBrandNorm.includes(fipeBrandNorm)
+  );
+}
+
+// Decide, com segurança, qual registro do PBE (se algum) corresponde ao
+// veículo consultado na FIPE. NÃO faz "match pelo mais parecido": exige
+// que TODOS os tokens do modelo PBE e TODOS os tokens da versão PBE
+// apareçam, como tokens inteiros, dentro do texto do modelo da FIPE.
+// Isso é o que impede, por exemplo, "GLI 2.0" ser confundido com
+// "XEI 2.0" — os tokens da versão precisam bater exatamente.
+function findConfidentPbeMatch(fipeData, candidates) {
+  if (!fipeData || !Array.isArray(candidates) || candidates.length === 0) {
+    return null;
+  }
+
+  const fipeBrandNorm = normalizePbeText(fipeData.brand);
+  const fipeModelNorm = normalizePbeText(fipeData.model);
+  const fipeTokenSet = new Set(pbeTokens(fipeModelNorm));
+
+  if (fipeTokenSet.size === 0) return null;
+
+  const scored = [];
+
+  for (const candidate of candidates) {
+    const pbeBrandNorm = normalizePbeText(candidate.brand);
+
+    if (!pbeBrandMatches(fipeBrandNorm, pbeBrandNorm)) continue;
+
+    const modelTokens = pbeTokens(normalizePbeText(candidate.model));
+    const versionTokens = pbeTokens(
+      normalizePbeText(candidate.version)
+    );
+
+    if (modelTokens.length === 0) continue;
+
+    const modelMatches = modelTokens.every((t) =>
+      fipeTokenSet.has(t)
+    );
+
+    // Versão é obrigatória: sem ela, não há confiança suficiente para
+    // decidir entre duas versões diferentes do mesmo modelo.
+    const versionMatches =
+      versionTokens.length > 0 &&
+      versionTokens.every((t) => fipeTokenSet.has(t));
+
+    if (modelMatches && versionMatches) {
+      scored.push({
+        candidate,
+        specificity: modelTokens.length + versionTokens.length,
+      });
+    }
+  }
+
+  if (scored.length === 0) return null;
+
+  scored.sort((a, b) => b.specificity - a.specificity);
+
+  const best = scored[0];
+  const runnerUp = scored[1];
+
+  // Empate de especificidade = ambiguidade real. Não decidimos por
+  // amostragem: melhor não mostrar dado do INMETRO do que mostrar o
+  // errado.
+  if (runnerUp && runnerUp.specificity === best.specificity) {
+    return null;
+  }
+
+  return best.candidate;
+}
+
+// Consulta public.vehicle_specs filtrando primeiro por marca (usando o
+// maior token da marca da FIPE como âncora, para tolerar prefixos como
+// "GM - CHEVROLET"), e só então tenta a correspondência de alta confiança
+// entre modelo/versão. Nunca lança erro para o chamador: falha de rede,
+// de RLS ou ausência de correspondência sempre resultam em `null`, e o
+// restante do fluxo (FIPE, resultado, contador de análises) continua
+// normalmente.
+async function fetchPbeSpecs(fipeData, accessToken) {
+  if (!fipeData || !fipeData.brand || !fipeData.model) return null;
+
+  const fipeBrandNorm = normalizePbeText(fipeData.brand);
+  const brandAnchor = pbeTokens(fipeBrandNorm).reduce(
+    (longest, token) => (token.length > longest.length ? token : longest),
+    ""
+  );
+
+  if (!brandAnchor) return null;
+
+  const columns = [
+    "brand",
+    "model",
+    "version",
+    "transmission",
+    "engine",
+    "fuel_type",
+    "propulsion_type",
+    "efficiency_class",
+    "pbe_general_class",
+    "pbe_category_class",
+    "gasoline_diesel_city_consumption",
+    "gasoline_diesel_highway_consumption",
+    "electric_city_consumption",
+    "electric_highway_consumption",
+    "electric_range",
+    "co2_fossil",
+    "vehp_co2e_fossil",
+    "emissions_co",
+    "emissions_nox",
+    "emissions_nmog_nox",
+  ].join(",");
+
+  const url =
+    `${SUPABASE_CONFIG.URL}/rest/v1/vehicle_specs` +
+    `?select=${columns}` +
+    `&brand=ilike.*${encodeURIComponent(brandAnchor)}*`;
+
+  let res;
+
+  try {
+    res = await fetch(url, {
+      headers: supaAuthHeaders(accessToken),
+    });
+  } catch (e) {
+    console.error("VALE?: falha de rede ao consultar o PBE.", e);
+    return null;
+  }
+
+  if (!res.ok) {
+    console.error("VALE?: falha ao consultar vehicle_specs (PBE).");
+    return null;
+  }
+
+  let candidates = null;
+
+  try {
+    candidates = await res.json();
+  } catch (e) {
+    return null;
+  }
+
+  if (!Array.isArray(candidates) || candidates.length === 0) return null;
+
+  return findConfidentPbeMatch(fipeData, candidates);
+}
+
+// ---------------------------------------------------------------------------
 // Controle de acesso
 // ---------------------------------------------------------------------------
 
@@ -729,7 +919,7 @@ function parseFipeCurrencyToNumber(value) {
 // ---------------------------------------------------------------------------
 // Resultado da análise
 // ---------------------------------------------------------------------------
-function buildAnalysisResult(form, fipeData) {
+function buildAnalysisResult(form, fipeData, pbeData) {
   const priceNum = Number(digits(form.price)) || 0;
   const kmNum = Number(digits(form.km)) || 0;
 
@@ -842,6 +1032,8 @@ function buildAnalysisResult(form, fipeData) {
       codeFipe: fipeData.codeFipe,
       referenceMonth: fipeData.referenceMonth,
     },
+
+    pbe: pbeData || null,
 
     indicators: [
       {
@@ -3018,6 +3210,67 @@ function ResultScreen({
     }
   };
 
+  // ---------------------------------------------------------------------
+  // PBE / INMETRO — só exibe campos realmente presentes no registro
+  // encontrado. Nunca preenche nem estima valor ausente.
+  // ---------------------------------------------------------------------
+  const pbe = result.pbe;
+
+  const hasPbeValue = (v) => v !== null && v !== undefined && v !== "";
+
+  const pbeFields = pbe
+    ? [
+        hasPbeValue(pbe.fuel_type) && {
+          label: "Combustível",
+          value: pbe.fuel_type,
+        },
+        hasPbeValue(pbe.engine) && {
+          label: "Motor",
+          value: pbe.engine,
+        },
+        hasPbeValue(pbe.transmission) && {
+          label: "Transmissão",
+          value: pbe.transmission,
+        },
+        hasPbeValue(pbe.gasoline_diesel_city_consumption) && {
+          label: "Consumo urbano",
+          value: `${Number(pbe.gasoline_diesel_city_consumption).toFixed(1)} km/l`,
+        },
+        hasPbeValue(pbe.gasoline_diesel_highway_consumption) && {
+          label: "Consumo rodoviário",
+          value: `${Number(pbe.gasoline_diesel_highway_consumption).toFixed(1)} km/l`,
+        },
+        hasPbeValue(pbe.electric_city_consumption) && {
+          label: "Consumo elétrico (urbano)",
+          value: `${Number(pbe.electric_city_consumption).toFixed(1)} Wh/km`,
+        },
+        hasPbeValue(pbe.electric_highway_consumption) && {
+          label: "Consumo elétrico (rodoviário)",
+          value: `${Number(pbe.electric_highway_consumption).toFixed(1)} Wh/km`,
+        },
+        hasPbeValue(pbe.electric_range) && {
+          label: "Autonomia elétrica",
+          value: `${Number(pbe.electric_range).toFixed(0)} km`,
+        },
+        hasPbeValue(pbe.pbe_general_class) && {
+          label: "Classe de eficiência",
+          value: pbe.pbe_general_class,
+        },
+        hasPbeValue(pbe.co2_fossil) && {
+          label: "Emissão de CO₂",
+          value: `${Number(pbe.co2_fossil).toFixed(1)} g/km`,
+        },
+        hasPbeValue(pbe.emissions_co) && {
+          label: "Emissão de CO",
+          value: `${Number(pbe.emissions_co).toFixed(1)} mg/km`,
+        },
+        hasPbeValue(pbe.emissions_nox) && {
+          label: "Emissão de NOx",
+          value: `${Number(pbe.emissions_nox).toFixed(2)} g/km`,
+        },
+      ].filter(Boolean)
+    : [];
+
   const tone = TONE[result.verdictTone];
   const diffLabel = `${result.diffPct >= 0 ? "+" : ""}${result.diffPct.toFixed(1)}%`;
   const priceGap = result.referencePrice - result.priceNum;
@@ -3286,6 +3539,61 @@ function ResultScreen({
                 ))}
               </div>
             </div>
+          </div>
+
+          {/* PBE / INMETRO */}
+          <div
+            className="vale-result-pbe"
+            style={{
+              marginTop: 14,
+              background: `linear-gradient(145deg, ${C.surfaceRaised}, ${C.surface})`,
+              border: `1px solid ${C.borderStrong}`,
+              borderRadius: 22,
+              padding: 20,
+              boxShadow: `0 12px 32px ${C.bg}65`,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: 14 }}>
+              <div style={{ width: 38, height: 38, borderRadius: 12, background: `${C.gold}15`, border: `1px solid ${C.gold}35`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <DocIcon size={18} color={C.gold} strokeWidth={1.9} />
+              </div>
+              <div>
+                <div style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 900, fontSize: 16, letterSpacing: 1.1, color: C.text, textTransform: "uppercase" }}>Dados do INMETRO</div>
+                <div style={{ fontSize: 10.5, color: C.faint, marginTop: 2 }}>Programa Brasileiro de Etiquetagem Veicular</div>
+              </div>
+            </div>
+
+            {pbeFields.length > 0 ? (
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  {pbeFields.map((f) => (
+                    <div
+                      key={f.label}
+                      style={{
+                        padding: "9px 10px",
+                        borderRadius: 10,
+                        background: `${C.bg}25`,
+                        border: `1px solid ${C.border}`,
+                      }}
+                    >
+                      <div style={{ color: C.faint, fontSize: 9.5, textTransform: "uppercase", letterSpacing: 1, fontWeight: 800 }}>
+                        {f.label}
+                      </div>
+                      <div style={{ color: C.text, fontFamily: "'JetBrains Mono', monospace", fontSize: 13, fontWeight: 700, marginTop: 4 }}>
+                        {f.value}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ marginTop: 12, fontSize: 9.5, color: C.faint, letterSpacing: 0.3 }}>
+                  Fonte: INMETRO — PBE Veicular 2026
+                </div>
+              </>
+            ) : (
+              <div style={{ padding: "15px 16px", borderRadius: 14, background: `${C.bg}35`, border: `1px solid ${C.border}`, color: C.muted, fontSize: 13, lineHeight: 1.6 }}>
+                Dados do INMETRO não disponíveis para esta versão.
+              </div>
+            )}
           </div>
 
           <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "0 4px", marginTop: 2 }}>
@@ -4214,6 +4522,25 @@ export default function App() {
         return;
       }
 
+      // PBE/INMETRO 2026: consulta best-effort. Nunca bloqueia nem altera
+      // o fluxo de FIPE/autenticação/contador — falha ou ausência de
+      // correspondência confiável sempre resulta em pbeData = null.
+      let pbeData = null;
+
+      try {
+        pbeData = await fetchPbeSpecs(
+          fipeData,
+          session && session.access_token
+        );
+      } catch (e) {
+        console.error(
+          "VALE?: erro inesperado ao consultar o PBE.",
+          e
+        );
+
+        pbeData = null;
+      }
+
       // IMPORTANTE:
       // ADMIN não consome análise.
       // PREMIUM também não consome análise.
@@ -4233,7 +4560,8 @@ export default function App() {
       setAnalysisResult(
         buildAnalysisResult(
           form,
-          fipeData
+          fipeData,
+          pbeData
         )
       );
 
