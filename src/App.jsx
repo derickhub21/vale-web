@@ -437,6 +437,39 @@ function canonicalizePropulsionTokens(tokens) {
   return tokens.map(canonicalizePropulsionToken);
 }
 
+// Normalização CONTROLADA de cilindrada — usada SOMENTE dentro da
+// comparação de tokens de modelo/versão do matching FIPE↔PBE, assim como
+// a equivalência de propulsão acima. Resolve apenas o fato de a FIPE
+// escrever a cilindrada com ponto decimal ("2.0", "1.6") enquanto o PBE
+// às vezes escreve sem o ponto ("20", "16"). NÃO é fuzzy matching: só
+// reescreve um token que já tem o formato exato "dígito.dígito" para a
+// forma "dígitodígito" (ex.: "2.0" -> "20"). Qualquer outro token
+// (siglas de versão como "XEI", "GLI", "16V" etc.) passa inalterado, e a
+// exigência de que TODOS os tokens apareçam continua valendo — por isso
+// "XEI 2.0" nunca pode casar com "GLI 2.0" ou "ALTIS 2.0": os tokens de
+// versão em si ("XEI"/"GLI"/"ALTIS") continuam exigindo igualdade
+// literal, só a grafia da cilindrada é equalizada.
+const DISPLACEMENT_TOKEN_PATTERN = /^(\d)\.(\d)$/;
+
+function canonicalizeDisplacementToken(token) {
+  const match = token.match(DISPLACEMENT_TOKEN_PATTERN);
+  return match ? `${match[1]}${match[2]}` : token;
+}
+
+function canonicalizeDisplacementTokens(tokens) {
+  return tokens.map(canonicalizeDisplacementToken);
+}
+
+// Combina as duas equivalências fechadas (propulsão + cilindrada) num
+// único passo, usado em todos os pontos do matching que hoje já usavam
+// canonicalizePropulsionTokens. Preserva 100% do comportamento anterior
+// para os tokens que não caem em nenhum dos dois dicionários/padrões.
+function canonicalizeMatchTokens(tokens) {
+  return canonicalizeDisplacementTokens(
+    canonicalizePropulsionTokens(tokens)
+  );
+}
+
 // Marca é comparada por igualdade normalizada ou contenção — cobre casos
 // como a FIPE trazer "GM - CHEVROLET" e o PBE trazer só "CHEVROLET".
 function pbeBrandMatches(fipeBrandNorm, pbeBrandNorm) {
@@ -464,7 +497,7 @@ function findConfidentPbeMatch(fipeData, candidates) {
   const fipeBrandNorm = normalizePbeText(fipeData.brand);
   const fipeModelNorm = normalizePbeText(fipeData.model);
   const fipeTokenSet = new Set(
-    canonicalizePropulsionTokens(pbeTokens(fipeModelNorm))
+    canonicalizeMatchTokens(pbeTokens(fipeModelNorm))
   );
 
   if (fipeTokenSet.size === 0) return null;
@@ -476,10 +509,10 @@ function findConfidentPbeMatch(fipeData, candidates) {
 
     if (!pbeBrandMatches(fipeBrandNorm, pbeBrandNorm)) continue;
 
-    const modelTokens = canonicalizePropulsionTokens(
+    const modelTokens = canonicalizeMatchTokens(
       pbeTokens(normalizePbeText(candidate.model))
     );
-    const versionTokens = canonicalizePropulsionTokens(
+    const versionTokens = canonicalizeMatchTokens(
       pbeTokens(normalizePbeText(candidate.version))
     );
 
