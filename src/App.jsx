@@ -4257,10 +4257,59 @@ function CostScreen({ accessToken, onBack }) {
   const [vehicle, setVehicle] = useState(emptyVehicle);
   const [vehicleLoading, setVehicleLoading] = useState(false);
   const [vehicleError, setVehicleError] = useState("");
+  const [fipeData, setFipeData] = useState(null);
+  const [pbeData, setPbeData] = useState(null);
 
-  const [km,setKm]=useState("1000"),[cons,setCons]=useState("10"),[fuel,setFuel]=useState("6"),[ipva,setIpva]=useState("2500"),[insurance,setInsurance]=useState("3000"),[maint,setMaint]=useState("250"),[result,setResult]=useState(null);
-  const n=v=>Number(String(v).replace(/\./g,"").replace(",","."))||0;
-  const calc=()=>{const monthlyFuel=n(km)/n(cons)*n(fuel);const monthlyIpva=n(ipva)/12;const monthlyInsurance=n(insurance)/12;const total=monthlyFuel+monthlyIpva+monthlyInsurance+n(maint);setResult({monthlyFuel,monthlyIpva,monthlyInsurance,maint:n(maint),total,annual:total*12});};
+  // Nenhum campo começa com valor fictício — tudo vazio até o usuário
+  // digitar, ou até o INMETRO preencher o consumo automaticamente.
+  const [km, setKm] = useState("");
+  const [cons, setCons] = useState("");
+  const [consAuto, setConsAuto] = useState(false);
+  const [fuel, setFuel] = useState("");
+  const [ipva, setIpva] = useState("");
+  const [insurance, setInsurance] = useState("");
+  const [maint, setMaint] = useState("");
+  const [result, setResult] = useState(null);
+  const [formError, setFormError] = useState("");
+
+  const n = (v) => Number(String(v).replace(/\./g, "").replace(",", ".")) || 0;
+  const hasValue = (v) => v !== null && v !== undefined && String(v).trim() !== "";
+
+  // Mesma fórmula de sempre — nenhuma matemática foi alterada. A única
+  // adição é "custo por km", calculado a partir do mesmo total mensal.
+  const calc = () => {
+    const missing = [];
+    if (!hasValue(km)) missing.push("Quilometragem mensal");
+    if (!hasValue(cons)) missing.push("Consumo médio");
+    if (!hasValue(fuel)) missing.push("Preço do combustível");
+    if (!hasValue(ipva)) missing.push("IPVA anual");
+    if (!hasValue(insurance)) missing.push("Seguro anual");
+    if (!hasValue(maint)) missing.push("Manutenção mensal");
+
+    if (missing.length > 0) {
+      setResult(null);
+      setFormError(`Preencha antes de calcular: ${missing.join(", ")}.`);
+      return;
+    }
+
+    setFormError("");
+
+    const monthlyFuel = n(km) / n(cons) * n(fuel);
+    const monthlyIpva = n(ipva) / 12;
+    const monthlyInsurance = n(insurance) / 12;
+    const total = monthlyFuel + monthlyIpva + monthlyInsurance + n(maint);
+    const perKm = n(km) > 0 ? total / n(km) : null;
+
+    setResult({
+      monthlyFuel,
+      monthlyIpva,
+      monthlyInsurance,
+      maint: n(maint),
+      total,
+      annual: total * 12,
+      perKm,
+    });
+  };
 
   // Assim que Marca + Modelo + Ano estiverem completos, busca a FIPE
   // (fetchFipeDetail, já existente) e, em seguida, tenta o INMETRO
@@ -4273,6 +4322,10 @@ function CostScreen({ accessToken, onBack }) {
   useEffect(() => {
     let active = true;
 
+    setFipeData(null);
+    setPbeData(null);
+    setConsAuto(false);
+
     if (!vehicle.brandId || !vehicle.modelId || !vehicle.yearId) {
       setVehicleError("");
       return () => { active = false; };
@@ -4282,10 +4335,10 @@ function CostScreen({ accessToken, onBack }) {
     setVehicleError("");
 
     (async () => {
-      let fipeData = null;
+      let data = null;
 
       try {
-        fipeData = await fetchFipeDetail(
+        data = await fetchFipeDetail(
           vehicle.brandId,
           vehicle.modelId,
           vehicle.yearId,
@@ -4299,25 +4352,31 @@ function CostScreen({ accessToken, onBack }) {
         return;
       }
 
-      if (active) setVehicleLoading(false);
-      if (!fipeData || !active) return;
+      if (active) {
+        setFipeData(data);
+        setVehicleLoading(false);
+      }
+      if (!data || !active) return;
 
-      let pbeData = null;
+      let pbe = null;
 
       try {
-        pbeData = await fetchPbeSpecs(fipeData, accessToken);
+        pbe = await fetchPbeSpecs(data, accessToken);
       } catch (e) {
-        pbeData = null;
+        pbe = null;
       }
 
-      if (!active || !pbeData) return;
+      if (!active) return;
 
-      const hasValue = (v) => v !== null && v !== undefined && v !== "";
-      const cityCons = hasValue(pbeData.gasoline_diesel_city_consumption)
-        ? Number(pbeData.gasoline_diesel_city_consumption)
+      setPbeData(pbe);
+
+      if (!pbe) return;
+
+      const cityCons = hasValue(pbe.gasoline_diesel_city_consumption)
+        ? Number(pbe.gasoline_diesel_city_consumption)
         : null;
-      const hwyCons = hasValue(pbeData.gasoline_diesel_highway_consumption)
-        ? Number(pbeData.gasoline_diesel_highway_consumption)
+      const hwyCons = hasValue(pbe.gasoline_diesel_highway_consumption)
+        ? Number(pbe.gasoline_diesel_highway_consumption)
         : null;
 
       let autoCons = null;
@@ -4331,21 +4390,110 @@ function CostScreen({ accessToken, onBack }) {
 
       if (autoCons !== null && !Number.isNaN(autoCons)) {
         setCons(autoCons.toFixed(1));
+        setConsAuto(true);
       }
     })();
 
     return () => { active = false; };
   }, [vehicle.brandId, vehicle.modelId, vehicle.yearId, accessToken]);
 
+  const vehicleLabel = fipeData
+    ? `${fipeData.brand || vehicle.brandName} ${fipeData.model || vehicle.modelName}${fipeData.modelYear ? ` ${fipeData.modelYear}` : ""}`
+    : null;
+
+  const pbeCityCons = hasValue(pbeData?.gasoline_diesel_city_consumption)
+    ? Number(pbeData.gasoline_diesel_city_consumption)
+    : null;
+  const pbeHwyCons = hasValue(pbeData?.gasoline_diesel_highway_consumption)
+    ? Number(pbeData.gasoline_diesel_highway_consumption)
+    : null;
+  const pbeClass = hasValue(pbeData?.pbe_general_class) ? pbeData.pbe_general_class : null;
+  const hasAnyPbeInfo = pbeCityCons !== null || pbeHwyCons !== null || pbeClass !== null;
+
+  // Elétrico sem consumo de combustão no PBE: não convertemos Wh/km para
+  // km/L nem inventamos nada — só avisamos que o cálculo específico para
+  // elétricos ainda não existe, e o campo de consumo fica manual.
+  const isElectricNoCons =
+    !!pbeData &&
+    pbeCityCons === null &&
+    pbeHwyCons === null &&
+    (hasValue(pbeData.electric_city_consumption) || hasValue(pbeData.electric_highway_consumption));
+
+  const manualFields = [
+    ["km", "Quilometragem mensal", "Ex.: 1.000 km", km, setKm],
+    ["fuel", "Preço do combustível (R$/L)", "Ex.: R$ 6,00/L", fuel, setFuel],
+    ["ipva", "IPVA anual (R$)", "Informe o valor anual", ipva, setIpva],
+    ["insurance", "Seguro anual (R$)", "Informe o valor anual", insurance, setInsurance],
+    ["maint", "Manutenção mensal (R$)", "Informe uma estimativa", maint, setMaint],
+  ];
+
   return <ToolShell title="Custo para manter" subtitle="Faça uma estimativa mensal personalizada. Os valores são projeções e podem variar conforme seu carro, perfil e região." onBack={onBack}>
     <VehiclePicker value={vehicle} onChange={setVehicle} accessToken={accessToken} label="Veículo (opcional — preenche o consumo automaticamente quando disponível)" />
     {vehicleLoading && <div className="vale-tool-hint">Consultando FIPE…</div>}
     {vehicleError && <div className="vale-tool-error">{vehicleError}</div>}
+
+    {vehicleLabel && (
+      <div style={{ padding: "10px 14px", marginTop: 10, borderRadius: 12, background: `${C.surfaceRaised}`, border: `1px solid ${C.border}`, color: C.text, fontFamily: "'Rajdhani', sans-serif", fontWeight: 800, fontSize: 15 }}>
+        {vehicleLabel}
+      </div>
+    )}
+
+    {hasAnyPbeInfo && (
+      <div style={{ marginTop: 10, padding: "12px 14px", borderRadius: 12, background: `${C.surfaceRaised}`, border: `1px solid ${C.border}` }}>
+        <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.6, textTransform: "uppercase", color: C.gold, marginBottom: 6 }}>Dados do INMETRO</div>
+        {pbeCityCons !== null && (
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.muted, padding: "3px 0" }}>
+            <span>Consumo urbano</span>
+            <b style={{ color: C.text }}>{pbeCityCons.toFixed(2).replace(".", ",")} km/L</b>
+          </div>
+        )}
+        {pbeHwyCons !== null && (
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.muted, padding: "3px 0" }}>
+            <span>Consumo rodoviário</span>
+            <b style={{ color: C.text }}>{pbeHwyCons.toFixed(2).replace(".", ",")} km/L</b>
+          </div>
+        )}
+        {pbeClass !== null && (
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.muted, padding: "3px 0" }}>
+            <span>Classe de eficiência</span>
+            <b style={{ color: C.text }}>{pbeClass}</b>
+          </div>
+        )}
+      </div>
+    )}
+
+    {isElectricNoCons && (
+      <div className="vale-tool-hint">
+        Este veículo é elétrico — o cálculo específico para elétricos ainda não está disponível nesta ferramenta. Informe o consumo manualmente, se quiser estimar mesmo assim.
+      </div>
+    )}
+
     <div className="vale-cost-grid">
-      {[["km","Quilometragem mensal","1000"],["cons","Consumo médio (km/L)","10"],["fuel","Preço do combustível (R$/L)","6"],["ipva","IPVA anual (R$)","2500"],["insurance","Seguro anual (R$)","3000"],["maint","Manutenção mensal (R$)","250"]].map(([k,l,p])=><label key={k}><span>{l}</span><input inputMode="decimal" value={{km,cons,fuel,ipva,insurance,maint}[k]} placeholder={p} onChange={e=>({km:setKm,cons:setCons,fuel:setFuel,ipva:setIpva,insurance:setInsurance,maint:setMaint}[k])(e.target.value)}/></label>)}
+      <label>
+        <span>
+          Consumo médio (km/L)
+          {consAuto && <small style={{ marginLeft: 6, color: C.gold, fontWeight: 700 }}>Preenchido pelo INMETRO</small>}
+        </span>
+        <input
+          inputMode="decimal"
+          value={cons}
+          placeholder="Informe o consumo em km/L"
+          onChange={(e) => { setCons(e.target.value); setConsAuto(false); }}
+        />
+      </label>
+      {manualFields.map(([k, l, p, v, setV]) => (
+        <label key={k}>
+          <span>{l}</span>
+          <input inputMode="decimal" value={v} placeholder={p} onChange={(e) => setV(e.target.value)} />
+        </label>
+      ))}
     </div>
+
+    {formError && <div className="vale-tool-error">{formError}</div>}
+
     <button className="vale-tool-primary" onClick={calc}>Calcular custo estimado</button>
-    {result&&<div className="vale-cost-result"><div className="vale-cost-total"><span>ESTIMATIVA MENSAL</span><strong>R$ {result.total.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}</strong><small>≈ R$ {result.annual.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}/ano</small></div><div className="vale-cost-lines"><div><span>Combustível</span><b>R$ {result.monthlyFuel.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}</b></div><div><span>IPVA</span><b>R$ {result.monthlyIpva.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}</b></div><div><span>Seguro</span><b>R$ {result.monthlyInsurance.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}</b></div><div><span>Manutenção</span><b>R$ {result.maint.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}</b></div></div></div>}
+
+    {result && <div className="vale-cost-result"><div className="vale-cost-total"><span>ESTIMATIVA MENSAL</span><strong>R$ {result.total.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong><small>≈ R$ {result.annual.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/ano</small></div><div className="vale-cost-lines"><div><span>Combustível</span><b>R$ {result.monthlyFuel.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b></div><div><span>IPVA</span><b>R$ {result.monthlyIpva.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b></div><div><span>Seguro</span><b>R$ {result.monthlyInsurance.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b></div><div><span>Manutenção</span><b>R$ {result.maint.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b></div>{result.perKm !== null && <div><span>Custo por km</span><b>R$ {result.perKm.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b></div>}</div></div>}
   </ToolShell>;
 }
 
