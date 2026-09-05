@@ -4243,11 +4243,104 @@ function CompareScreen({ accessToken, onBack }) {
   </ToolShell>;
 }
 
-function CostScreen({ onBack }) {
+function CostScreen({ accessToken, onBack }) {
+  // Veículo (Marca → Modelo → Ano) reaproveitando o VehiclePicker já
+  // existente, sem nenhuma alteração nele.
+  const emptyVehicle = {
+    brandId: "",
+    modelId: "",
+    yearId: "",
+    brandName: "",
+    modelName: "",
+    yearName: "",
+  };
+  const [vehicle, setVehicle] = useState(emptyVehicle);
+  const [vehicleLoading, setVehicleLoading] = useState(false);
+  const [vehicleError, setVehicleError] = useState("");
+
   const [km,setKm]=useState("1000"),[cons,setCons]=useState("10"),[fuel,setFuel]=useState("6"),[ipva,setIpva]=useState("2500"),[insurance,setInsurance]=useState("3000"),[maint,setMaint]=useState("250"),[result,setResult]=useState(null);
   const n=v=>Number(String(v).replace(/\./g,"").replace(",","."))||0;
   const calc=()=>{const monthlyFuel=n(km)/n(cons)*n(fuel);const monthlyIpva=n(ipva)/12;const monthlyInsurance=n(insurance)/12;const total=monthlyFuel+monthlyIpva+monthlyInsurance+n(maint);setResult({monthlyFuel,monthlyIpva,monthlyInsurance,maint:n(maint),total,annual:total*12});};
+
+  // Assim que Marca + Modelo + Ano estiverem completos, busca a FIPE
+  // (fetchFipeDetail, já existente) e, em seguida, tenta o INMETRO
+  // (fetchPbeSpecs, já existente) apenas para pré-preencher "Consumo
+  // médio" quando houver correspondência confiável. FIPE falhar mostra
+  // erro amigável; INMETRO falhar ou não achar correspondência nunca
+  // bloqueia nada — o campo simplesmente continua manual, sem inventar
+  // valor algum (inclusive para elétricos, que não têm
+  // gasoline_diesel_*_consumption preenchido no PBE).
+  useEffect(() => {
+    let active = true;
+
+    if (!vehicle.brandId || !vehicle.modelId || !vehicle.yearId) {
+      setVehicleError("");
+      return () => { active = false; };
+    }
+
+    setVehicleLoading(true);
+    setVehicleError("");
+
+    (async () => {
+      let fipeData = null;
+
+      try {
+        fipeData = await fetchFipeDetail(
+          vehicle.brandId,
+          vehicle.modelId,
+          vehicle.yearId,
+          accessToken
+        );
+      } catch (e) {
+        if (active) {
+          setVehicleError("Não foi possível consultar a FIPE para este veículo.");
+          setVehicleLoading(false);
+        }
+        return;
+      }
+
+      if (active) setVehicleLoading(false);
+      if (!fipeData || !active) return;
+
+      let pbeData = null;
+
+      try {
+        pbeData = await fetchPbeSpecs(fipeData, accessToken);
+      } catch (e) {
+        pbeData = null;
+      }
+
+      if (!active || !pbeData) return;
+
+      const hasValue = (v) => v !== null && v !== undefined && v !== "";
+      const cityCons = hasValue(pbeData.gasoline_diesel_city_consumption)
+        ? Number(pbeData.gasoline_diesel_city_consumption)
+        : null;
+      const hwyCons = hasValue(pbeData.gasoline_diesel_highway_consumption)
+        ? Number(pbeData.gasoline_diesel_highway_consumption)
+        : null;
+
+      let autoCons = null;
+      if (cityCons !== null && hwyCons !== null) {
+        autoCons = (cityCons + hwyCons) / 2;
+      } else if (cityCons !== null) {
+        autoCons = cityCons;
+      } else if (hwyCons !== null) {
+        autoCons = hwyCons;
+      }
+
+      if (autoCons !== null && !Number.isNaN(autoCons)) {
+        setCons(autoCons.toFixed(1));
+      }
+    })();
+
+    return () => { active = false; };
+  }, [vehicle.brandId, vehicle.modelId, vehicle.yearId, accessToken]);
+
   return <ToolShell title="Custo para manter" subtitle="Faça uma estimativa mensal personalizada. Os valores são projeções e podem variar conforme seu carro, perfil e região." onBack={onBack}>
+    <VehiclePicker value={vehicle} onChange={setVehicle} accessToken={accessToken} label="Veículo (opcional — preenche o consumo automaticamente quando disponível)" />
+    {vehicleLoading && <div className="vale-tool-hint">Consultando FIPE…</div>}
+    {vehicleError && <div className="vale-tool-error">{vehicleError}</div>}
     <div className="vale-cost-grid">
       {[["km","Quilometragem mensal","1000"],["cons","Consumo médio (km/L)","10"],["fuel","Preço do combustível (R$/L)","6"],["ipva","IPVA anual (R$)","2500"],["insurance","Seguro anual (R$)","3000"],["maint","Manutenção mensal (R$)","250"]].map(([k,l,p])=><label key={k}><span>{l}</span><input inputMode="decimal" value={{km,cons,fuel,ipva,insurance,maint}[k]} placeholder={p} onChange={e=>({km:setKm,cons:setCons,fuel:setFuel,ipva:setIpva,insurance:setInsurance,maint:setMaint}[k])(e.target.value)}/></label>)}
     </div>
@@ -4983,7 +5076,7 @@ export default function App() {
         )}
 
         {toolScreen === "compare" && <CompareScreen accessToken={session?.access_token} onBack={closeTool} />}
-        {toolScreen === "cost" && <CostScreen onBack={closeTool} />}
+        {toolScreen === "cost" && <CostScreen accessToken={session?.access_token} onBack={closeTool} />}
         {toolScreen === "check" && <ChecklistScreen onBack={closeTool} />}
         {toolScreen === "ad" && <AdAnalysisScreen onBack={closeTool} />}
         {toolScreen === "plans" && <PlansScreen access={access} onBack={closeTool} onSubscribe={handleSubscribe} />}
