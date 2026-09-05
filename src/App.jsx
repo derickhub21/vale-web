@@ -417,6 +417,26 @@ function pbeTokens(normalized) {
   return normalized.split(" ").filter(Boolean);
 }
 
+// Dicionário FECHADO de equivalência de propulsão — usado SOMENTE dentro
+// da comparação de tokens de modelo/versão do matching FIPE↔PBE. Não é
+// um sistema de sinônimos genérico: resolve apenas o fato de a FIPE
+// escrever a propulsão elétrica por extenso ("Elétrico") enquanto o PBE
+// usa a sigla ("EV"). Qualquer outro token continua exigindo igualdade
+// literal — isso não abre espaço para "GLI" casar com "XEI", por
+// exemplo, nem reduz a exigência de que todos os tokens apareçam.
+const PROPULSION_TOKEN_EQUIVALENTS = {
+  EV: "ELETRICO",
+  ELECTRIC: "ELETRICO",
+};
+
+function canonicalizePropulsionToken(token) {
+  return PROPULSION_TOKEN_EQUIVALENTS[token] || token;
+}
+
+function canonicalizePropulsionTokens(tokens) {
+  return tokens.map(canonicalizePropulsionToken);
+}
+
 // Marca é comparada por igualdade normalizada ou contenção — cobre casos
 // como a FIPE trazer "GM - CHEVROLET" e o PBE trazer só "CHEVROLET".
 function pbeBrandMatches(fipeBrandNorm, pbeBrandNorm) {
@@ -432,9 +452,10 @@ function pbeBrandMatches(fipeBrandNorm, pbeBrandNorm) {
 // Decide, com segurança, qual registro do PBE (se algum) corresponde ao
 // veículo consultado na FIPE. NÃO faz "match pelo mais parecido": exige
 // que TODOS os tokens do modelo PBE e TODOS os tokens da versão PBE
-// apareçam, como tokens inteiros, dentro do texto do modelo da FIPE.
-// Isso é o que impede, por exemplo, "GLI 2.0" ser confundido com
-// "XEI 2.0" — os tokens da versão precisam bater exatamente.
+// apareçam, como tokens inteiros, dentro do texto do modelo da FIPE
+// (após a equivalência fechada de propulsão acima). Isso é o que impede,
+// por exemplo, "GLI 2.0" ser confundido com "XEI 2.0" — os tokens da
+// versão precisam bater exatamente.
 function findConfidentPbeMatch(fipeData, candidates) {
   if (!fipeData || !Array.isArray(candidates) || candidates.length === 0) {
     return null;
@@ -442,7 +463,9 @@ function findConfidentPbeMatch(fipeData, candidates) {
 
   const fipeBrandNorm = normalizePbeText(fipeData.brand);
   const fipeModelNorm = normalizePbeText(fipeData.model);
-  const fipeTokenSet = new Set(pbeTokens(fipeModelNorm));
+  const fipeTokenSet = new Set(
+    canonicalizePropulsionTokens(pbeTokens(fipeModelNorm))
+  );
 
   if (fipeTokenSet.size === 0) return null;
 
@@ -453,9 +476,11 @@ function findConfidentPbeMatch(fipeData, candidates) {
 
     if (!pbeBrandMatches(fipeBrandNorm, pbeBrandNorm)) continue;
 
-    const modelTokens = pbeTokens(normalizePbeText(candidate.model));
-    const versionTokens = pbeTokens(
-      normalizePbeText(candidate.version)
+    const modelTokens = canonicalizePropulsionTokens(
+      pbeTokens(normalizePbeText(candidate.model))
+    );
+    const versionTokens = canonicalizePropulsionTokens(
+      pbeTokens(normalizePbeText(candidate.version))
     );
 
     if (modelTokens.length === 0) continue;
