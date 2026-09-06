@@ -4695,7 +4695,6 @@ function CostScreen({ accessToken, onBack }) {
     (hasValue(pbeData.electric_city_consumption) || hasValue(pbeData.electric_highway_consumption));
 
   const manualFields = [
-    ["km", "Quilometragem mensal", "Ex.: 1.000 km", km, setKm],
     ["ipva", "IPVA anual (R$)", "Informe o valor anual", ipva, setIpva],
     ["insurance", "Seguro anual (R$)", "Informe o valor anual", insurance, setInsurance],
     ["maint", "Manutenção mensal (R$)", "Informe uma estimativa", maint, setMaint],
