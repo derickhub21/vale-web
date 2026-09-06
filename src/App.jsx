@@ -4243,6 +4243,162 @@ function CompareScreen({ accessToken, onBack }) {
   </ToolShell>;
 }
 
+// ---------------------------------------------------------------------
+// ANP — Preço médio de combustível (public.fuel_prices)
+// ---------------------------------------------------------------------
+// Mesmo padrão de acesso REST já usado por fetchPbeSpecs: fetch direto
+// contra o Supabase, com a mesma SUPABASE_CONFIG/supaAuthHeaders — sem
+// Edge Function nova, sem segredo exposto.
+
+const ANP_UF_LIST = [
+  ["AC", "Acre"], ["AL", "Alagoas"], ["AP", "Amapá"], ["AM", "Amazonas"],
+  ["BA", "Bahia"], ["CE", "Ceará"], ["DF", "Distrito Federal"], ["ES", "Espírito Santo"],
+  ["GO", "Goiás"], ["MA", "Maranhão"], ["MT", "Mato Grosso"], ["MS", "Mato Grosso do Sul"],
+  ["MG", "Minas Gerais"], ["PA", "Pará"], ["PB", "Paraíba"], ["PR", "Paraná"],
+  ["PE", "Pernambuco"], ["PI", "Piauí"], ["RJ", "Rio de Janeiro"], ["RN", "Rio Grande do Norte"],
+  ["RS", "Rio Grande do Sul"], ["RO", "Rondônia"], ["RR", "Roraima"], ["SC", "Santa Catarina"],
+  ["SP", "São Paulo"], ["SE", "Sergipe"], ["TO", "Tocantins"],
+];
+
+function anpHasValue(v) {
+  return v !== null && v !== undefined && String(v).trim() !== "";
+}
+
+// Decide qual(is) produto(s) da ANP fazem sentido para o veículo atual,
+// a partir do que já temos do INMETRO (fuel_type/propulsion_type/engine)
+// e, na ausência de match confiável, do texto da FIPE. Nunca presume
+// Flex sem uma indicação real — sem nenhum dado, deixa o usuário
+// escolher entre os 4 produtos existentes na ANP.
+function computeFuelOptions(pbeData, fipeData) {
+  const propulsion = anpHasValue(pbeData?.propulsion_type)
+    ? String(pbeData.propulsion_type)
+    : "";
+  const isElectric =
+    /el[ée]tric/i.test(propulsion) ||
+    (pbeData && String(pbeData.fuel_type || "").trim().toUpperCase() === "E") ||
+    (!pbeData && anpHasValue(fipeData?.fuel) && /el[ée]tric/i.test(fipeData.fuel));
+
+  if (isElectric) {
+    return { kind: "electric", options: [] };
+  }
+
+  // Heurística textual para Diesel S10 — mesmo espírito do matching
+  // FIPE↔PBE já existente: procura o token "S10" onde estiver
+  // disponível, sem inventar o dado quando não aparece em lugar nenhum.
+  const s10Pattern = /s\s*-?\s*10/i;
+  const isDieselS10 =
+    (anpHasValue(pbeData?.engine) && s10Pattern.test(pbeData.engine)) ||
+    (anpHasValue(pbeData?.version) && s10Pattern.test(pbeData.version)) ||
+    (anpHasValue(fipeData?.model) && s10Pattern.test(fipeData.model));
+
+  const pbeFuelType = pbeData
+    ? String(pbeData.fuel_type || "").trim().toUpperCase()
+    : "";
+
+  if (pbeFuelType === "D") {
+    return { kind: "fixed", options: [isDieselS10 ? "DIESEL S10" : "DIESEL"] };
+  }
+  if (pbeFuelType === "F") {
+    return { kind: "choice", options: ["GASOLINA", "ETANOL"] };
+  }
+  if (pbeFuelType === "G") {
+    return { kind: "fixed", options: ["GASOLINA"] };
+  }
+
+  // Sem PBE confiável — tenta pelo texto da FIPE, sem presumir Flex.
+  if (anpHasValue(fipeData?.fuel)) {
+    const f = fipeData.fuel.toLowerCase();
+    if (f.includes("diesel")) {
+      return { kind: "fixed", options: [isDieselS10 ? "DIESEL S10" : "DIESEL"] };
+    }
+    if (f.includes("álcool") || f.includes("alcool") || f.includes("etanol")) {
+      return { kind: "fixed", options: ["ETANOL"] };
+    }
+    if (f.includes("gasolina")) {
+      return { kind: "fixed", options: ["GASOLINA"] };
+    }
+  }
+
+  return { kind: "unknown", options: ["GASOLINA", "ETANOL", "DIESEL", "DIESEL S10"] };
+}
+
+async function fetchAnpMunicipios(uf, accessToken) {
+  if (!uf) return [];
+
+  const params = new URLSearchParams({
+    select: "municipio",
+    uf: `eq.${uf}`,
+    order: "municipio.asc",
+  });
+
+  let res;
+  try {
+    res = await fetch(
+      `${SUPABASE_CONFIG.URL}/rest/v1/fuel_prices?${params.toString()}`,
+      { headers: supaAuthHeaders(accessToken) }
+    );
+  } catch (e) {
+    return [];
+  }
+
+  if (!res.ok) return [];
+
+  let rows = [];
+  try {
+    rows = await res.json();
+  } catch (e) {
+    return [];
+  }
+
+  if (!Array.isArray(rows)) return [];
+
+  const set = new Set(rows.map((r) => r.municipio).filter(Boolean));
+  return Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"));
+}
+
+async function fetchAnpPrice(uf, municipio, produto, accessToken) {
+  if (!uf || !municipio || !produto) return null;
+
+  const params = new URLSearchParams({
+    select: "preco_medio,semana_inicio,semana_fim,num_postos",
+    uf: `eq.${uf}`,
+    municipio: `eq.${municipio}`,
+    produto: `eq.${produto}`,
+    order: "semana_inicio.desc",
+    limit: "1",
+  });
+
+  let res;
+  try {
+    res = await fetch(
+      `${SUPABASE_CONFIG.URL}/rest/v1/fuel_prices?${params.toString()}`,
+      { headers: supaAuthHeaders(accessToken) }
+    );
+  } catch (e) {
+    return null;
+  }
+
+  if (!res.ok) return null;
+
+  let rows = [];
+  try {
+    rows = await res.json();
+  } catch (e) {
+    return null;
+  }
+
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+  return rows[0];
+}
+
+function formatBrDate(iso) {
+  if (!anpHasValue(iso)) return "";
+  const parts = String(iso).split("-");
+  if (parts.length !== 3) return String(iso);
+  const [y, m, d] = parts;
+  return `${d}/${m}/${y}`;
+}
+
 function CostScreen({ accessToken, onBack }) {
   // Veículo (Marca → Modelo → Ano) reaproveitando o VehiclePicker já
   // existente, sem nenhuma alteração nele.
@@ -4259,6 +4415,20 @@ function CostScreen({ accessToken, onBack }) {
   const [vehicleError, setVehicleError] = useState("");
   const [fipeData, setFipeData] = useState(null);
   const [pbeData, setPbeData] = useState(null);
+
+  // Localização (ANP) — obrigatória para o preço automático, mas nunca
+  // bloqueia o preenchimento manual do campo de preço.
+  const [uf, setUf] = useState("");
+  const [municipio, setMunicipio] = useState("");
+  const [municipios, setMunicipios] = useState([]);
+  const [municipiosLoading, setMunicipiosLoading] = useState(false);
+
+  const [selectedProduto, setSelectedProduto] = useState(null);
+  const [anpData, setAnpData] = useState(null);
+  const [anpLoading, setAnpLoading] = useState(false);
+  const [anpChecked, setAnpChecked] = useState(false);
+  // fuelSource: null (vazio/indefinido) | "anp" | "manual"
+  const [fuelSource, setFuelSource] = useState(null);
 
   // Nenhum campo começa com valor fictício — tudo vazio até o usuário
   // digitar, ou até o INMETRO preencher o consumo automaticamente.
@@ -4397,6 +4567,111 @@ function CostScreen({ accessToken, onBack }) {
     return () => { active = false; };
   }, [vehicle.brandId, vehicle.modelId, vehicle.yearId, accessToken]);
 
+  // Combustível permitido para o veículo atual (INMETRO, com fallback na
+  // FIPE). Recalcula sempre que o veículo mudar.
+  const fuelOptions = useMemo(
+    () => computeFuelOptions(pbeData, fipeData),
+    [pbeData, fipeData]
+  );
+  const fuelOptionsKey = fuelOptions.options.join(",");
+
+  // Ajusta o produto selecionado quando o conjunto de opções muda (troca
+  // de veículo): fixo vira o único valor possível; escolha (Flex)
+  // preserva a escolha do usuário se ainda for válida, senão assume
+  // Gasolina; sem dado nenhum, preserva a escolha manual do usuário ou
+  // fica em branco até ele decidir.
+  useEffect(() => {
+    if (fuelOptions.kind === "electric") {
+      setSelectedProduto(null);
+      return;
+    }
+    if (fuelOptions.kind === "fixed") {
+      setSelectedProduto(fuelOptions.options[0]);
+      return;
+    }
+    if (fuelOptions.kind === "choice") {
+      setSelectedProduto((prev) =>
+        fuelOptions.options.includes(prev) ? prev : fuelOptions.options[0]
+      );
+      return;
+    }
+    setSelectedProduto((prev) =>
+      prev && fuelOptions.options.includes(prev) ? prev : null
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fuelOptions.kind, fuelOptionsKey]);
+
+  // UF muda -> limpa município e preço ANP, busca os municípios daquela
+  // UF que realmente têm dado em fuel_prices (nunca uma lista externa).
+  useEffect(() => {
+    let active = true;
+
+    setMunicipio("");
+    setAnpData(null);
+    setAnpChecked(false);
+    setMunicipios([]);
+
+    if (!uf) return () => { active = false; };
+
+    setMunicipiosLoading(true);
+
+    (async () => {
+      const list = await fetchAnpMunicipios(uf, accessToken);
+      if (active) {
+        setMunicipios(list);
+        setMunicipiosLoading(false);
+      }
+    })();
+
+    return () => { active = false; };
+  }, [uf, accessToken]);
+
+  // Município ou combustível muda -> busca o preço médio ANP mais
+  // recente (maior semana_inicio) para aquela combinação. Nunca inventa
+  // preço: sem correspondência, o campo permanece vazio ou preserva o
+  // que o usuário já tiver digitado manualmente.
+  useEffect(() => {
+    let active = true;
+
+    setAnpData(null);
+    setAnpChecked(false);
+
+    if (!uf || !municipio || !selectedProduto) {
+      return () => { active = false; };
+    }
+
+    setAnpLoading(true);
+
+    (async () => {
+      const data = await fetchAnpPrice(uf, municipio, selectedProduto, accessToken);
+      if (!active) return;
+
+      setAnpLoading(false);
+      setAnpChecked(true);
+      setAnpData(data);
+
+      if (data && hasValue(data.preco_medio)) {
+        setFuel(Number(data.preco_medio).toFixed(2));
+        setFuelSource("anp");
+      } else {
+        setFuelSource((prevSource) => {
+          if (prevSource === "anp") {
+            setFuel("");
+            return null;
+          }
+          return prevSource;
+        });
+      }
+    })();
+
+    return () => { active = false; };
+  }, [uf, municipio, selectedProduto, accessToken]);
+
+  const handleFuelChange = (val) => {
+    setFuel(val);
+    setFuelSource(val.trim() === "" ? null : "manual");
+  };
+
   const vehicleLabel = fipeData
     ? `${fipeData.brand || vehicle.brandName} ${fipeData.model || vehicle.modelName}${fipeData.modelYear ? ` ${fipeData.modelYear}` : ""}`
     : null;
@@ -4421,11 +4696,12 @@ function CostScreen({ accessToken, onBack }) {
 
   const manualFields = [
     ["km", "Quilometragem mensal", "Ex.: 1.000 km", km, setKm],
-    ["fuel", "Preço do combustível (R$/L)", "Ex.: R$ 6,00/L", fuel, setFuel],
     ["ipva", "IPVA anual (R$)", "Informe o valor anual", ipva, setIpva],
     ["insurance", "Seguro anual (R$)", "Informe o valor anual", insurance, setInsurance],
     ["maint", "Manutenção mensal (R$)", "Informe uma estimativa", maint, setMaint],
   ];
+
+  const isElectricVehicle = fuelOptions.kind === "electric";
 
   return <ToolShell title="Custo para manter" subtitle="Faça uma estimativa mensal personalizada. Os valores são projeções e podem variar conforme seu carro, perfil e região." onBack={onBack}>
     <VehiclePicker value={vehicle} onChange={setVehicle} accessToken={accessToken} label="Veículo (opcional — preenche o consumo automaticamente quando disponível)" />
@@ -4481,6 +4757,127 @@ function CostScreen({ accessToken, onBack }) {
           onChange={(e) => { setCons(e.target.value); setConsAuto(false); }}
         />
       </label>
+      <label>
+        <span>Quilometragem mensal</span>
+        <input inputMode="decimal" value={km} placeholder="Ex.: 1.000 km" onChange={(e) => setKm(e.target.value)} />
+      </label>
+    </div>
+
+    {!isElectricVehicle && (
+      <div className="vale-picker-card" style={{ marginTop: 10 }}>
+        <div className="vale-picker-label">Onde você abastece?</div>
+        <div className="vale-picker-grid">
+          <label>
+            <span>Estado</span>
+            <select value={uf} onChange={(e) => setUf(e.target.value)}>
+              <option value="">Selecione</option>
+              {ANP_UF_LIST.map(([code, name]) => (
+                <option key={code} value={code}>{name}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Município</span>
+            <select value={municipio} disabled={!uf} onChange={(e) => setMunicipio(e.target.value)}>
+              <option value="">{municipiosLoading ? "Carregando…" : "Selecione"}</option>
+              {municipios.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        {uf && !municipiosLoading && municipios.length === 0 && (
+          <div className="vale-tool-hint">Nenhum município com dado da ANP encontrado para este estado.</div>
+        )}
+
+        {fuelOptions.kind === "choice" && (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.6, textTransform: "uppercase", color: C.faint, marginBottom: 6 }}>Combustível</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {fuelOptions.options.map((opt) => (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => setSelectedProduto(opt)}
+                  style={{
+                    flex: 1,
+                    padding: "8px 12px",
+                    borderRadius: 10,
+                    border: `1px solid ${selectedProduto === opt ? C.gold : C.border}`,
+                    background: selectedProduto === opt ? `${C.gold}18` : C.surfaceRaised,
+                    color: selectedProduto === opt ? C.gold : C.muted,
+                    fontWeight: 800,
+                    fontSize: 13,
+                    cursor: "pointer",
+                  }}
+                >
+                  {opt === "GASOLINA" ? "Gasolina" : "Etanol"}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {fuelOptions.kind === "unknown" && (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.6, textTransform: "uppercase", color: C.faint, marginBottom: 6 }}>Combustível</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {fuelOptions.options.map((opt) => (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => setSelectedProduto(opt)}
+                  style={{
+                    padding: "8px 12px",
+                    borderRadius: 10,
+                    border: `1px solid ${selectedProduto === opt ? C.gold : C.border}`,
+                    background: selectedProduto === opt ? `${C.gold}18` : C.surfaceRaised,
+                    color: selectedProduto === opt ? C.gold : C.muted,
+                    fontWeight: 800,
+                    fontSize: 13,
+                    cursor: "pointer",
+                  }}
+                >
+                  {opt.charAt(0) + opt.slice(1).toLowerCase()}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {anpLoading && <div className="vale-tool-hint" style={{ marginTop: 10 }}>Consultando preço médio da ANP…</div>}
+      </div>
+    )}
+
+    <div className="vale-cost-grid" style={{ marginTop: 10 }}>
+      <label>
+        <span>
+          Preço do combustível (R$/L)
+          {fuelSource === "anp" && <small style={{ marginLeft: 6, color: C.gold, fontWeight: 700 }}>Preenchido pela ANP</small>}
+          {fuelSource === "manual" && <small style={{ marginLeft: 6, color: C.faint, fontWeight: 700 }}>Preço informado manualmente</small>}
+        </span>
+        <input
+          inputMode="decimal"
+          value={fuel}
+          placeholder="Ex.: R$ 6,00/L"
+          onChange={(e) => handleFuelChange(e.target.value)}
+        />
+      </label>
+    </div>
+
+    {fuelSource === "anp" && anpData && (
+      <div style={{ marginTop: 6, padding: "8px 12px", borderRadius: 10, background: `${C.surfaceRaised}`, border: `1px solid ${C.border}`, fontSize: 12, color: C.muted }}>
+        <div>Preço médio ANP • {municipio}/{uf}</div>
+        <div>Semana de {formatBrDate(anpData.semana_inicio)} a {formatBrDate(anpData.semana_fim)}</div>
+        {hasValue(anpData.num_postos) && <div>{anpData.num_postos} postos pesquisados</div>}
+      </div>
+    )}
+
+    {!isElectricVehicle && anpChecked && !anpData && municipio && (
+      <div className="vale-tool-hint" style={{ marginTop: 6 }}>Preço médio ANP não disponível para esta região.</div>
+    )}
+
+    <div className="vale-cost-grid" style={{ marginTop: 10 }}>
       {manualFields.map(([k, l, p, v, setV]) => (
         <label key={k}>
           <span>{l}</span>
