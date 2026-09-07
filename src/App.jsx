@@ -2484,8 +2484,8 @@ function HomeScreen({
             </div>
 
             <h1>
-              Antes de comprar um carro,
-              <span> descubra se vale a pena.</span>
+              FIPE informa.
+              <span> VALE? recomenda.</span>
             </h1>
 
             <p className="vale-home-lead">
