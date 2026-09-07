@@ -4442,7 +4442,34 @@ function CostScreen({ accessToken, onBack }) {
   const [result, setResult] = useState(null);
   const [formError, setFormError] = useState("");
 
-  const n = (v) => Number(String(v).replace(/\./g, "").replace(",", ".")) || 0;
+  // Corrige a origem do bug: a versão anterior removia QUALQUER "."
+  // assumindo que era sempre separador de milhar (formato BR,
+  // "1.234,56"), mas valores preenchidos automaticamente pelo
+  // INMETRO/ANP usam ponto decimal puro (ex.: "13.1", "6.27",
+  // gerados por toFixed()) — e eram corrompidos (13.1 virava 131,
+  // 6.27 virava 627). Regra: vírgula presente = formato BR (ponto é
+  // milhar, remove; vírgula é decimal). Sem vírgula, só trata o
+  // ÚLTIMO ponto como separador de milhar quando ele tiver exatamente
+  // 3 dígitos depois até o fim (ex.: "1.250" -> 1250, igual ao
+  // placeholder "Ex.: 1.000 km") — caso contrário o ponto é decimal
+  // (ex.: "13.1" -> 13.1, "6.27" -> 6.27).
+  const n = (v) => {
+    if (v === null || v === undefined) return 0;
+    let s = String(v).trim();
+    if (s === "") return 0;
+
+    if (s.includes(",")) {
+      s = s.replace(/\./g, "").replace(",", ".");
+    } else {
+      const lastDot = s.lastIndexOf(".");
+      if (lastDot !== -1 && s.length - lastDot - 1 === 3) {
+        s = s.replace(/\./g, "");
+      }
+    }
+
+    const result = Number(s);
+    return Number.isFinite(result) ? result : 0;
+  };
   const hasValue = (v) => v !== null && v !== undefined && String(v).trim() !== "";
 
   // Mesma fórmula de sempre — nenhuma matemática foi alterada. A única
