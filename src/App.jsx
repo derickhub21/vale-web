@@ -4227,20 +4227,368 @@ function VehiclePicker({ value, onChange, accessToken, label = "Veículo" }) {
 }
 
 function CompareScreen({ accessToken, onBack }) {
-  const empty = { brandId:"", modelId:"", yearId:"", brandName:"", modelName:"", yearName:"" };
-  const [a,setA]=useState(empty), [b,setB]=useState(empty), [da,setDa]=useState(null), [db,setDb]=useState(null), [loading,setLoading]=useState(false), [error,setError]=useState("");
-  const run=async()=>{
-    if(!a.brandId||!a.modelId||!a.yearId||!b.brandId||!b.modelId||!b.yearId){setError("Selecione marca, modelo e ano nos dois veículos.");return;}
-    try{setLoading(true);setError("");const [ra,rb]=await Promise.all([fetchFipeDetail(a.brandId,a.modelId,a.yearId,accessToken),fetchFipeDetail(b.brandId,b.modelId,b.yearId,accessToken)]);setDa(ra);setDb(rb);}catch{setError("Não foi possível consultar um dos veículos na FIPE.");}finally{setLoading(false);}
+  const empty = { brandId: "", modelId: "", yearId: "", brandName: "", modelName: "", yearName: "" };
+
+  const [a, setA] = useState(empty);
+  const [b, setB] = useState(empty);
+
+  const [fipeA, setFipeA] = useState(null);
+  const [fipeB, setFipeB] = useState(null);
+  const [pbeA, setPbeA] = useState(null);
+  const [pbeB, setPbeB] = useState(null);
+
+  const [loadingA, setLoadingA] = useState(false);
+  const [loadingB, setLoadingB] = useState(false);
+  const [errorA, setErrorA] = useState("");
+  const [errorB, setErrorB] = useState("");
+
+  const [compareError, setCompareError] = useState("");
+  const [compared, setCompared] = useState(false);
+
+  const hasV = (v) => v !== null && v !== undefined && String(v).trim() !== "";
+  const numOrNull = (v) => (hasV(v) ? Number(v) : null);
+
+  const priceOf = (fipeX) => {
+    if (!fipeX || !hasV(fipeX.price)) return null;
+    const p = parseFipeCurrencyToNumber(fipeX.price);
+    return Number.isFinite(p) && p > 0 ? p : null;
   };
-  const price=x=>parseFipeCurrencyToNumber(x?.price);
-  const comparison=da&&db?(()=>{const pa=price(da),pb=price(db);return {pa,pb,winner:pa<=pb?"A":"B"}})():null;
-  return <ToolShell title="Comparar carros" subtitle="Consulte dois veículos reais na FIPE e compare preço de referência e informações do modelo." onBack={onBack}>
-    <div className="vale-two-col"><VehiclePicker value={a} onChange={setA} accessToken={accessToken} label="Carro 1"/><VehiclePicker value={b} onChange={setB} accessToken={accessToken} label="Carro 2"/></div>
-    {error&&<div className="vale-tool-error">{error}</div>}
-    <button className="vale-tool-primary" onClick={run} disabled={loading}>{loading?"Consultando FIPE…":"Comparar veículos"}</button>
-    {comparison&&<div className="vale-compare-result"><div className="vale-compare-winner">🏆 Melhor referência de preço: <strong>Carro {comparison.winner}</strong></div><div className="vale-compare-grid"><div><span>CARRO 1</span><strong>{a.brandName} {a.modelName}</strong><b>R$ {comparison.pa.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}</b><small>{da.referenceMonth||"FIPE"}</small></div><div><span>CARRO 2</span><strong>{b.brandName} {b.modelName}</strong><b>R$ {comparison.pb.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}</b><small>{db.referenceMonth||"FIPE"}</small></div></div></div>}
-  </ToolShell>;
+
+  const kmL = (v) => `${v.toFixed(2).replace(".", ",")} km/L`;
+  const whKm = (v) => `${v.toFixed(1).replace(".", ",")} Wh/km`;
+  const kmRange = (v) => `${v.toFixed(0)} km`;
+
+  // Carro A: reaproveita fetchFipeDetail() e fetchPbeSpecs() (com o
+  // matching já existente) assim que marca/modelo/ano estiverem
+  // completos. Falha de FIPE mostra erro amigável; falha ou ausência de
+  // match do INMETRO nunca bloqueia nada.
+  useEffect(() => {
+    let active = true;
+    setFipeA(null);
+    setPbeA(null);
+    setErrorA("");
+    setCompared(false);
+
+    if (!a.brandId || !a.modelId || !a.yearId) {
+      return () => { active = false; };
+    }
+
+    setLoadingA(true);
+
+    (async () => {
+      let fd = null;
+      try {
+        fd = await fetchFipeDetail(a.brandId, a.modelId, a.yearId, accessToken);
+      } catch (e) {
+        if (active) {
+          setErrorA("Não foi possível consultar a FIPE para o Carro A.");
+          setLoadingA(false);
+        }
+        return;
+      }
+
+      if (active) {
+        setFipeA(fd);
+        setLoadingA(false);
+      }
+      if (!fd || !active) return;
+
+      let pd = null;
+      try {
+        pd = await fetchPbeSpecs(fd, accessToken);
+      } catch (e) {
+        pd = null;
+      }
+      if (active) setPbeA(pd);
+    })();
+
+    return () => { active = false; };
+  }, [a.brandId, a.modelId, a.yearId, accessToken]);
+
+  // Carro B: mesma lógica do Carro A.
+  useEffect(() => {
+    let active = true;
+    setFipeB(null);
+    setPbeB(null);
+    setErrorB("");
+    setCompared(false);
+
+    if (!b.brandId || !b.modelId || !b.yearId) {
+      return () => { active = false; };
+    }
+
+    setLoadingB(true);
+
+    (async () => {
+      let fd = null;
+      try {
+        fd = await fetchFipeDetail(b.brandId, b.modelId, b.yearId, accessToken);
+      } catch (e) {
+        if (active) {
+          setErrorB("Não foi possível consultar a FIPE para o Carro B.");
+          setLoadingB(false);
+        }
+        return;
+      }
+
+      if (active) {
+        setFipeB(fd);
+        setLoadingB(false);
+      }
+      if (!fd || !active) return;
+
+      let pd = null;
+      try {
+        pd = await fetchPbeSpecs(fd, accessToken);
+      } catch (e) {
+        pd = null;
+      }
+      if (active) setPbeB(pd);
+    })();
+
+    return () => { active = false; };
+  }, [b.brandId, b.modelId, b.yearId, accessToken]);
+
+  const handleCompare = () => {
+    const missing = [];
+    if (!fipeA) missing.push("Carro A");
+    if (!fipeB) missing.push("Carro B");
+
+    if (missing.length > 0) {
+      setCompareError(
+        missing.length === 2
+          ? "Selecione marca, modelo e ano dos dois veículos para comparar."
+          : `Selecione marca, modelo e ano do ${missing[0]} para comparar.`
+      );
+      setCompared(false);
+      return;
+    }
+
+    setCompareError("");
+    setCompared(true);
+  };
+
+  function renderCarCard(vehicleState, fipeX, pbeX, loadingX, errorX, label) {
+    const px = priceOf(fipeX);
+    const cityX = numOrNull(pbeX?.gasoline_diesel_city_consumption);
+    const hwyX = numOrNull(pbeX?.gasoline_diesel_highway_consumption);
+    const classX = hasV(pbeX?.pbe_general_class) ? pbeX.pbe_general_class : null;
+    const eCityX = numOrNull(pbeX?.electric_city_consumption);
+    const eHwyX = numOrNull(pbeX?.electric_highway_consumption);
+    const rangeX = numOrNull(pbeX?.electric_range);
+    const hasAnyPbe = cityX !== null || hwyX !== null || classX !== null || eCityX !== null || eHwyX !== null || rangeX !== null;
+
+    return (
+      <div style={{ padding: "12px 14px", borderRadius: 14, background: C.surfaceRaised, border: `1px solid ${C.border}`, marginTop: 8 }}>
+        <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.6, textTransform: "uppercase", color: C.gold, marginBottom: 6 }}>{label}</div>
+        {loadingX && <div className="vale-tool-hint">Consultando FIPE…</div>}
+        {errorX && <div className="vale-tool-error">{errorX}</div>}
+        {fipeX && (
+          <>
+            <div style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 800, fontSize: 15, color: C.text }}>
+              {fipeX.brand || vehicleState.brandName} {fipeX.model || vehicleState.modelName}
+            </div>
+            <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>{fipeX.modelYear || vehicleState.yearName}</div>
+            {px !== null && (
+              <div style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 900, fontSize: 18, color: C.text }}>{fmtBRL(px)}</div>
+            )}
+            {hasAnyPbe ? (
+              <div style={{ marginTop: 8, fontSize: 12, color: C.muted, lineHeight: 1.7 }}>
+                {cityX !== null && <div>Consumo urbano: <b style={{ color: C.text }}>{kmL(cityX)}</b></div>}
+                {hwyX !== null && <div>Consumo rodoviário: <b style={{ color: C.text }}>{kmL(hwyX)}</b></div>}
+                {classX !== null && <div>Classe INMETRO: <b style={{ color: C.text }}>{classX}</b></div>}
+                {eCityX !== null && <div>Consumo elétrico (urbano): <b style={{ color: C.text }}>{whKm(eCityX)}</b></div>}
+                {eHwyX !== null && <div>Consumo elétrico (rodoviário): <b style={{ color: C.text }}>{whKm(eHwyX)}</b></div>}
+                {rangeX !== null && <div>Autonomia elétrica: <b style={{ color: C.text }}>{kmRange(rangeX)}</b></div>}
+              </div>
+            ) : (
+              <div style={{ marginTop: 8, fontSize: 11.5, color: C.faint }}>Dados do INMETRO não disponíveis para esta versão.</div>
+            )}
+          </>
+        )}
+      </div>
+    );
+  }
+
+  // -----------------------------------------------------------------
+  // Dados derivados da comparação (só usados quando "compared" ativo)
+  // -----------------------------------------------------------------
+
+  const fuelOptA = computeFuelOptions(pbeA, fipeA);
+  const fuelOptB = computeFuelOptions(pbeB, fipeB);
+  const isElectricA = fuelOptA.kind === "electric";
+  const isElectricB = fuelOptB.kind === "electric";
+
+  const priceA = priceOf(fipeA);
+  const priceB = priceOf(fipeB);
+  const cityA = numOrNull(pbeA?.gasoline_diesel_city_consumption);
+  const cityB = numOrNull(pbeB?.gasoline_diesel_city_consumption);
+  const hwyA = numOrNull(pbeA?.gasoline_diesel_highway_consumption);
+  const hwyB = numOrNull(pbeB?.gasoline_diesel_highway_consumption);
+  const classA = hasV(pbeA?.pbe_general_class) ? pbeA.pbe_general_class : null;
+  const classB = hasV(pbeB?.pbe_general_class) ? pbeB.pbe_general_class : null;
+  const eCityA = numOrNull(pbeA?.electric_city_consumption);
+  const eCityB = numOrNull(pbeB?.electric_city_consumption);
+  const eHwyA = numOrNull(pbeA?.electric_highway_consumption);
+  const eHwyB = numOrNull(pbeB?.electric_highway_consumption);
+  const rangeA = numOrNull(pbeA?.electric_range);
+  const rangeB = numOrNull(pbeB?.electric_range);
+
+  const rows = [];
+  if (priceA !== null || priceB !== null) {
+    rows.push({ label: "Valor FIPE", a: priceA !== null ? fmtBRL(priceA) : null, b: priceB !== null ? fmtBRL(priceB) : null });
+  }
+  if (cityA !== null || cityB !== null) {
+    rows.push({ label: "Consumo urbano", a: cityA !== null ? kmL(cityA) : null, b: cityB !== null ? kmL(cityB) : null });
+  }
+  if (hwyA !== null || hwyB !== null) {
+    rows.push({ label: "Consumo rodoviário", a: hwyA !== null ? kmL(hwyA) : null, b: hwyB !== null ? kmL(hwyB) : null });
+  }
+  if (classA !== null || classB !== null) {
+    rows.push({ label: "Classe INMETRO", a: classA, b: classB });
+  }
+  if (eCityA !== null || eCityB !== null) {
+    rows.push({ label: "Consumo elétrico (urbano)", a: eCityA !== null ? whKm(eCityA) : null, b: eCityB !== null ? whKm(eCityB) : null });
+  }
+  if (eHwyA !== null || eHwyB !== null) {
+    rows.push({ label: "Consumo elétrico (rodoviário)", a: eHwyA !== null ? whKm(eHwyA) : null, b: eHwyB !== null ? whKm(eHwyB) : null });
+  }
+  if (rangeA !== null || rangeB !== null) {
+    rows.push({ label: "Autonomia elétrica", a: rangeA !== null ? kmRange(rangeA) : null, b: rangeB !== null ? kmRange(rangeB) : null });
+  }
+
+  let priceDiffText = null;
+  if (priceA !== null && priceB !== null) {
+    const diff = Math.abs(priceA - priceB);
+    if (diff < 1) {
+      priceDiffText = "Os dois veículos têm praticamente o mesmo valor FIPE.";
+    } else {
+      const cheaper = priceA < priceB ? "Carro A" : "Carro B";
+      priceDiffText = `${cheaper} é ${fmtBRL(diff)} mais barato pela FIPE.`;
+    }
+  }
+
+  const pickWinner = (valueA, valueB, better) => {
+    if (valueA === null || valueB === null) return null;
+    const cmp = better(valueA, valueB);
+    if (cmp === 0) return "tie";
+    return cmp < 0 ? "A" : "B";
+  };
+
+  const priceWinner = pickWinner(priceA, priceB, (x, y) => x - y);
+
+  // Consumo: só compara combustão-com-combustão, na mesma métrica nos
+  // dois lados. Nunca compara km/L com Wh/km — se um dos dois for
+  // elétrico, esta categoria fica sem vencedor (os dados continuam
+  // visíveis, separados, na tabela acima).
+  let consumoWinner = null;
+  if (!isElectricA && !isElectricB) {
+    if (cityA !== null && cityB !== null) {
+      consumoWinner = pickWinner(cityA, cityB, (x, y) => y - x);
+    } else if (hwyA !== null && hwyB !== null) {
+      consumoWinner = pickWinner(hwyA, hwyB, (x, y) => y - x);
+    }
+  }
+
+  const classRank = { A: 1, B: 2, C: 3, D: 4, E: 5 };
+  let eficienciaWinner = null;
+  if (classA !== null && classB !== null && classRank[classA] && classRank[classB]) {
+    eficienciaWinner = pickWinner(classRank[classA], classRank[classB], (x, y) => x - y);
+  }
+
+  const categories = [
+    { key: "preco", label: "Melhor preço FIPE", winner: priceWinner },
+    { key: "consumo", label: "Melhor consumo", winner: consumoWinner },
+    { key: "eficiencia", label: "Melhor eficiência", winner: eficienciaWinner },
+  ].filter((c) => c.winner !== null);
+
+  const reasonsA = [];
+  const reasonsB = [];
+  categories.forEach((c) => {
+    const label = c.key === "preco" ? "Menor valor FIPE" : c.key === "consumo" ? "Melhor consumo" : "Melhor classe de eficiência";
+    if (c.winner === "A") reasonsA.push(label);
+    else if (c.winner === "B") reasonsB.push(label);
+  });
+
+  let verdictTitle = "Não foi possível determinar um vencedor com segurança.";
+  let verdictLines = null;
+  if (reasonsA.length > 0 && reasonsB.length === 0) {
+    verdictTitle = "Carro A leva vantagem";
+    verdictLines = reasonsA;
+  } else if (reasonsB.length > 0 && reasonsA.length === 0) {
+    verdictTitle = "Carro B leva vantagem";
+    verdictLines = reasonsB;
+  } else if (reasonsA.length > 0 && reasonsB.length > 0) {
+    verdictTitle = "Empate técnico";
+    verdictLines = [
+      `Carro A tem vantagem em: ${reasonsA.join(", ")}.`,
+      `Carro B tem vantagem em: ${reasonsB.join(", ")}.`,
+    ];
+  }
+
+  return (
+    <ToolShell title="Comparar carros" subtitle="Compare dois veículos lado a lado e descubra qual faz mais sentido para você." onBack={onBack}>
+      <div className="vale-two-col">
+        <div>
+          <VehiclePicker value={a} onChange={setA} accessToken={accessToken} label="Carro A" />
+          {renderCarCard(a, fipeA, pbeA, loadingA, errorA, "CARRO A")}
+        </div>
+        <div>
+          <VehiclePicker value={b} onChange={setB} accessToken={accessToken} label="Carro B" />
+          {renderCarCard(b, fipeB, pbeB, loadingB, errorB, "CARRO B")}
+        </div>
+      </div>
+
+      {compareError && <div className="vale-tool-error">{compareError}</div>}
+
+      <button className="vale-tool-primary" onClick={handleCompare}>Comparar carros</button>
+
+      {compared && (
+        <>
+          <div style={{ marginTop: 16 }}>
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.6, textTransform: "uppercase", color: C.faint, marginBottom: 8 }}>Comparação</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr 1fr", gap: "2px 8px" }}>
+              <div />
+              <div style={{ fontSize: 11, fontWeight: 800, color: C.gold, textAlign: "center" }}>CARRO A</div>
+              <div style={{ fontSize: 11, fontWeight: 800, color: C.gold, textAlign: "center" }}>CARRO B</div>
+              {rows.map((r) => (
+                <React.Fragment key={r.label}>
+                  <div style={{ fontSize: 12, color: C.muted, padding: "6px 0", borderTop: `1px solid ${C.border}` }}>{r.label}</div>
+                  <div style={{ fontSize: 13, color: r.a !== null ? C.text : C.faint, fontWeight: 700, textAlign: "center", padding: "6px 0", borderTop: `1px solid ${C.border}` }}>{r.a !== null ? r.a : "—"}</div>
+                  <div style={{ fontSize: 13, color: r.b !== null ? C.text : C.faint, fontWeight: 700, textAlign: "center", padding: "6px 0", borderTop: `1px solid ${C.border}` }}>{r.b !== null ? r.b : "—"}</div>
+                </React.Fragment>
+              ))}
+            </div>
+            {priceDiffText && <div style={{ marginTop: 10, fontSize: 12.5, color: C.muted }}>{priceDiffText}</div>}
+          </div>
+
+          {categories.length > 0 && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+              {categories.map((c) => (
+                <div key={c.key} style={{ padding: "6px 12px", borderRadius: 999, border: `1px solid ${C.border}`, background: C.surfaceRaised, fontSize: 12, fontWeight: 800 }}>
+                  <span style={{ color: C.faint }}>{c.label}: </span>
+                  <span style={{ color: C.gold }}>{c.winner === "tie" ? "Empate" : `Carro ${c.winner}`}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{ marginTop: 16, padding: 18, borderRadius: 18, background: `linear-gradient(145deg, ${C.surfaceRaised}, ${C.surface})`, border: `1px solid ${C.borderStrong}` }}>
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.6, textTransform: "uppercase", color: C.faint, marginBottom: 6 }}>Qual vale mais a pena?</div>
+            <div style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 900, fontSize: 19, color: C.gold, marginBottom: 8 }}>{verdictTitle}</div>
+            {verdictLines && verdictTitle === "Empate técnico" && verdictLines.map((line, i) => (
+              <div key={i} style={{ fontSize: 13, color: C.muted, marginBottom: 4 }}>{line}</div>
+            ))}
+            {verdictLines && verdictTitle !== "Empate técnico" && (
+              <ul style={{ margin: 0, paddingLeft: 18, color: C.muted, fontSize: 13 }}>
+                {verdictLines.map((r, i) => <li key={i}>{r}</li>)}
+              </ul>
+            )}
+          </div>
+        </>
+      )}
+    </ToolShell>
+  );
 }
 
 // ---------------------------------------------------------------------
