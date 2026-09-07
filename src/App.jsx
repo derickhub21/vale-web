@@ -629,6 +629,76 @@ async function fetchPbeSpecs(fipeData, accessToken) {
 }
 
 // ---------------------------------------------------------------------------
+// Grupo comparável de eficiência (score V2)
+// ---------------------------------------------------------------------------
+// Pequeno dicionário fechado das variações de grafia REAIS já confirmadas
+// em vehicle_specs.propulsion_type (não é fuzzy matching — é a lista
+// exata do que existe hoje no banco).
+const PROPULSION_GROUP_VARIANTS = {
+  COMBUSTAO: ["Combustão"],
+  ELETRICO: ["Elétrico"],
+  HIBRIDO: ["Híbrido", "Hibrido"],
+  PLUGIN: ["Plug-in", "Plug-In"],
+};
+
+function normalizePropulsionGroup(propulsionType) {
+  if (!propulsionType) return null;
+  const v = String(propulsionType).trim().toLowerCase();
+
+  if (v === "combustão" || v === "combustao") return "COMBUSTAO";
+  if (v === "elétrico" || v === "eletrico") return "ELETRICO";
+  if (v === "híbrido" || v === "hibrido") return "HIBRIDO";
+  if (v === "plug-in" || v === "plug-in") return "PLUGIN";
+
+  return null;
+}
+
+// Busca, direto no Supabase (mesmo padrão REST de fetchPbeSpecs, sem
+// Edge Function nova), os demais veículos do mesmo grupo comparável
+// (category + propulsion_type normalizado) para calcular o percentil de
+// eficiência. Nunca lança erro para o chamador: falha de rede ou de
+// dados sempre resulta em `null`, e o restante da análise continua
+// normalmente (cai no modo sem eficiência).
+async function fetchComparableGroup(pbeData, accessToken) {
+  if (!pbeData || !pbeData.category || !pbeData.propulsion_type) return null;
+
+  const group = normalizePropulsionGroup(pbeData.propulsion_type);
+  if (!group) return null;
+
+  const variants = PROPULSION_GROUP_VARIANTS[group];
+  if (!variants || variants.length === 0) return null;
+
+  const params = new URLSearchParams({
+    select:
+      "category,propulsion_type,gasoline_diesel_city_consumption,gasoline_diesel_highway_consumption,electric_city_consumption,electric_highway_consumption",
+    category: `eq.${pbeData.category}`,
+    propulsion_type: `in.(${variants.join(",")})`,
+  });
+
+  let res;
+  try {
+    res = await fetch(
+      `${SUPABASE_CONFIG.URL}/rest/v1/vehicle_specs?${params.toString()}`,
+      { headers: supaAuthHeaders(accessToken) }
+    );
+  } catch (e) {
+    return null;
+  }
+
+  if (!res.ok) return null;
+
+  let rows = [];
+  try {
+    rows = await res.json();
+  } catch (e) {
+    return null;
+  }
+
+  if (!Array.isArray(rows)) return null;
+  return rows;
+}
+
+// ---------------------------------------------------------------------------
 // Controle de acesso
 // ---------------------------------------------------------------------------
 
@@ -975,9 +1045,118 @@ function parseFipeCurrencyToNumber(value) {
 }
 
 // ---------------------------------------------------------------------------
+// Score V2 — interpolação linear e eficiência por grupo comparável
+// ---------------------------------------------------------------------------
+
+// Interpolação linear genérica entre pontos [x, y] ordenados por x
+// crescente. Fora da faixa, satura no primeiro/último y (nunca
+// extrapola além dos limites definidos).
+function interpolateScore(x, points) {
+  if (x <= points[0][0]) return points[0][1];
+
+  const last = points[points.length - 1];
+  if (x >= last[0]) return last[1];
+
+  for (let i = 0; i < points.length - 1; i++) {
+    const [x1, y1] = points[i];
+    const [x2, y2] = points[i + 1];
+
+    if (x >= x1 && x <= x2) {
+      const t = (x - x1) / (x2 - x1);
+      return y1 + t * (y2 - y1);
+    }
+  }
+
+  return last[1];
+}
+
+// D (diferença percentual vs. FIPE) -> nota de preço.
+const PRICE_SCORE_POINTS = [
+  [-15, 10],
+  [-10, 9],
+  [-5, 8],
+  [0, 7],
+  [5, 6],
+  [10, 5],
+  [15, 4],
+  [20, 3],
+  [25, 2],
+  [30, 1],
+  [35, 0],
+];
+
+// ratio (km_real / expectedKm), em %, -> nota de quilometragem.
+const KM_SCORE_POINTS = [
+  [50, 10],
+  [75, 9],
+  [100, 8],
+  [125, 7],
+  [150, 5.5],
+  [175, 4],
+  [200, 2],
+  [225, 1],
+  [250, 0],
+];
+
+const EFFICIENCY_MIN_GROUP_SIZE = 5;
+
+function efficiencyMetricOf(specs, group) {
+  const hasNum = (v) => v !== null && v !== undefined && String(v).trim() !== "" && Number.isFinite(Number(v));
+
+  if (group === "ELETRICO") {
+    const city = hasNum(specs?.electric_city_consumption) ? Number(specs.electric_city_consumption) : null;
+    const hwy = hasNum(specs?.electric_highway_consumption) ? Number(specs.electric_highway_consumption) : null;
+    if (city !== null && hwy !== null) return (city + hwy) / 2;
+    if (city !== null) return city;
+    if (hwy !== null) return hwy;
+    return null;
+  }
+
+  // Combustão, Híbrido e Plug-in usam a mesma métrica de combustão (km/L).
+  const city = hasNum(specs?.gasoline_diesel_city_consumption) ? Number(specs.gasoline_diesel_city_consumption) : null;
+  const hwy = hasNum(specs?.gasoline_diesel_highway_consumption) ? Number(specs.gasoline_diesel_highway_consumption) : null;
+  if (city !== null && hwy !== null) return (city + hwy) / 2;
+  if (city !== null) return city;
+  if (hwy !== null) return hwy;
+  return null;
+}
+
+// Calcula o percentil de eficiência do veículo dentro do grupo comparável
+// já buscado (fetchComparableGroup) e converte para nota 0-10. Retorna
+// null quando não há dado numérico do veículo, ou quando o grupo válido
+// tem menos que EFFICIENCY_MIN_GROUP_SIZE veículos — nesses casos o
+// chamador cai no modo sem eficiência (Preço 62,5% / KM 37,5%).
+function computeEfficiencyScore(pbeData, groupRows) {
+  if (!pbeData || !Array.isArray(groupRows)) return null;
+
+  const group = normalizePropulsionGroup(pbeData.propulsion_type);
+  if (!group) return null;
+
+  const vehicleMetric = efficiencyMetricOf(pbeData, group);
+  if (vehicleMetric === null) return null;
+
+  const validMetrics = groupRows
+    .map((row) => efficiencyMetricOf(row, group))
+    .filter((m) => m !== null);
+
+  if (validMetrics.length < EFFICIENCY_MIN_GROUP_SIZE) return null;
+
+  // "Igual ou pior": para combustão/híbrido/plug-in, km/L menor ou igual;
+  // para elétrico, Wh/km maior ou igual (menos eficiente ou igual).
+  const equalOrWorseCount = validMetrics.filter((m) =>
+    group === "ELETRICO" ? m >= vehicleMetric : m <= vehicleMetric
+  ).length;
+
+  const percentile = equalOrWorseCount / validMetrics.length;
+  const score = Math.max(0, Math.min(10, percentile * 10));
+
+  return { score, percentile, groupSize: validMetrics.length };
+}
+
+// ---------------------------------------------------------------------------
 // Resultado da análise
 // ---------------------------------------------------------------------------
-function buildAnalysisResult(form, fipeData, pbeData) {
+function buildAnalysisResult(form, fipeData, pbeData, groupRows) {
   const priceNum = Number(digits(form.price)) || 0;
   const kmNum = Number(digits(form.km)) || 0;
 
@@ -997,14 +1176,36 @@ function buildAnalysisResult(form, fipeData, pbeData) {
       ? ((priceNum - referencePrice) / referencePrice) * 100
       : 0;
 
-  let score = 7 - diffPct * 0.3;
+  const priceScore = Math.max(
+    0,
+    Math.min(10, interpolateScore(diffPct, PRICE_SCORE_POINTS))
+  );
+
+  const expectedKm = Math.max(age, 1) * 15000;
+
+  const ratio = expectedKm > 0 ? kmNum / expectedKm : 0;
+
+  const kmScore = Math.max(
+    0,
+    Math.min(10, interpolateScore(ratio * 100, KM_SCORE_POINTS))
+  );
+
+  const efficiencyResult = computeEfficiencyScore(pbeData, groupRows);
+
+  let score;
+  if (efficiencyResult) {
+    score =
+      priceScore * 0.5 + kmScore * 0.3 + efficiencyResult.score * 0.2;
+  } else {
+    score = priceScore * 0.625 + kmScore * 0.375;
+  }
 
   score = Math.max(0, Math.min(10, score));
 
   let verdictTone;
   let verdictLabel;
 
-  if (score >= 7.5) {
+  if (score >= 8.0) {
     verdictTone = "good";
     verdictLabel = "BOM NEGÓCIO";
   } else if (score >= 5.5) {
@@ -1015,61 +1216,118 @@ function buildAnalysisResult(form, fipeData, pbeData) {
     verdictLabel = "ATENÇÃO AO PREÇO";
   }
 
-  let verdictText;
-
-  if (diffPct <= -5) {
-    verdictText = `O preço informado está ${Math.abs(
-      diffPct
-    ).toFixed(
-      1
-    )}% abaixo da referência FIPE. O veículo pode representar uma oportunidade — ainda assim, vale confirmar o estado geral do carro antes de fechar negócio.`;
-  } else if (diffPct >= 5) {
-    verdictText = `O preço informado está ${diffPct.toFixed(
-      1
-    )}% acima da referência FIPE. Vale negociar ou entender o que justifica esse valor antes de avançar.`;
-  } else {
-    verdictText =
-      "O preço informado está próximo da referência FIPE — um valor dentro do esperado. A decisão pode depender mais do estado de conservação do que do preço em si.";
-  }
+  // Indicadores explicativos — sempre derivados das notas já calculadas
+  // acima (priceScore/kmScore/efficiencyResult.score), nunca de uma
+  // lógica paralela. Isso garante que o texto explica a matemática, sem
+  // poder divergir dela.
+  const precoLabel =
+    priceScore >= 9
+      ? "Muito bom"
+      : priceScore >= 7
+      ? "Bom"
+      : priceScore >= 5
+      ? "Próximo da FIPE"
+      : priceScore >= 3
+      ? "Acima da FIPE"
+      : "Muito acima";
 
   const precoTone =
-    diffPct <= -5
+    priceScore >= 7 ? "good" : priceScore >= 5 ? "neutral" : priceScore >= 3 ? "warn" : "bad";
+
+  const kmLabel =
+    kmScore >= 9
+      ? "Muito abaixo"
+      : kmScore >= 7
+      ? "Dentro do esperado"
+      : kmScore >= 5
+      ? "Dentro"
+      : kmScore >= 3
+      ? "Acima"
+      : "Muito acima";
+
+  const kmTone =
+    kmScore >= 7 ? "good" : kmScore >= 5 ? "neutral" : kmScore >= 3 ? "warn" : "bad";
+
+  const eficienciaLabel = efficiencyResult
+    ? efficiencyResult.score >= 7
+      ? "Acima da média"
+      : efficiencyResult.score >= 4
+      ? "Na média"
+      : "Abaixo da média"
+    : null;
+
+  const eficienciaTone = efficiencyResult
+    ? efficiencyResult.score >= 7
       ? "good"
-      : diffPct < 5
-      ? "warn"
-      : "bad";
+      : efficiencyResult.score >= 4
+      ? "neutral"
+      : "bad"
+    : null;
 
-  const precoLabel =
-    diffPct <= -5
-      ? "Bom"
-      : diffPct < 5
-      ? "Regular"
-      : "Alto";
+  // Texto do veredito — combina preço, km e (quando disponível)
+  // eficiência, em vez de depender só da diferença percentual da FIPE.
+  const priceClause =
+    diffPct <= 0
+      ? `o preço está ${Math.abs(diffPct).toFixed(1)}% abaixo da referência FIPE`
+      : `o preço está ${diffPct.toFixed(1)}% acima da referência FIPE`;
 
-  const expectedKm = Math.max(age, 1) * 15000;
+  const kmClause = `a quilometragem está ${kmLabel.toLowerCase()} do esperado para a idade do veículo`;
 
-  const ratio =
-    expectedKm > 0 ? kmNum / expectedKm : 0;
+  const efficiencyClause = efficiencyResult
+    ? `a eficiência está ${eficienciaLabel.toLowerCase()} dentro do grupo de veículos comparáveis (percentil ${Math.round(efficiencyResult.percentile * 100)}%)`
+    : null;
 
-  let kmTone;
-  let kmLabel;
+  const verdictClauses = [priceClause, kmClause];
+  if (efficiencyClause) verdictClauses.push(efficiencyClause);
 
-  if (ratio > 1.25) {
-    kmTone = "bad";
-    kmLabel = "Alta";
-  } else if (ratio > 0.9) {
-    kmTone = "warn";
-    kmLabel = "Atenção";
-  } else {
-    kmTone = "good";
-    kmLabel = "Baixa";
-  }
+  const verdictText = `Considerando os fatores avaliados: ${verdictClauses.join("; ")}.`;
 
   const manutTone = "neutral";
   const manutLabel = "Dados insuficientes";
 
   const revendaTone = "neutral";
   const revendaLabel = "Dados insuficientes";
+
+  const indicators = [
+    {
+      key: "preco",
+      label: "Preço",
+      value: precoLabel,
+      tone: precoTone,
+      Icon: WalletIcon,
+    },
+    {
+      key: "manut",
+      label: "Manutenção",
+      value: manutLabel,
+      tone: manutTone,
+      Icon: GearIcon,
+    },
+    {
+      key: "revenda",
+      label: "Revenda",
+      value: revendaLabel,
+      tone: revendaTone,
+      Icon: TrendUpIcon,
+    },
+    {
+      key: "km",
+      label: "Quilometragem",
+      value: kmLabel,
+      tone: kmTone,
+      Icon: GaugeSmallIcon,
+    },
+  ];
+
+  if (efficiencyResult) {
+    indicators.push({
+      key: "eficiencia",
+      label: "Eficiência",
+      value: eficienciaLabel,
+      tone: eficienciaTone,
+      Icon: GaugeSmallIcon,
+    });
+  }
 
   return {
     score,
@@ -1093,36 +1351,7 @@ function buildAnalysisResult(form, fipeData, pbeData) {
 
     pbe: pbeData || null,
 
-    indicators: [
-      {
-        key: "preco",
-        label: "Preço",
-        value: precoLabel,
-        tone: precoTone,
-        Icon: WalletIcon,
-      },
-      {
-        key: "manut",
-        label: "Manutenção",
-        value: manutLabel,
-        tone: manutTone,
-        Icon: GearIcon,
-      },
-      {
-        key: "revenda",
-        label: "Revenda",
-        value: revendaLabel,
-        tone: revendaTone,
-        Icon: TrendUpIcon,
-      },
-      {
-        key: "km",
-        label: "Quilometragem",
-        value: kmLabel,
-        tone: kmTone,
-        Icon: GaugeSmallIcon,
-      },
-    ],
+    indicators,
   };
 }
 
@@ -2484,8 +2713,8 @@ function HomeScreen({
             </div>
 
             <h1>
-              FIPE informa.
-              <span> VALE? recomenda.</span>
+              Antes de comprar um carro,
+              <span> descubra se vale a pena.</span>
             </h1>
 
             <p className="vale-home-lead">
@@ -5289,7 +5518,7 @@ function AdAnalysisScreen({ onBack }) {
 
 function PlansScreen({ access, onBack, onSubscribe }) {
   return <ToolShell title="Planos VALE?" subtitle="Escolha o nível de acesso para usar o VALE? como sua central de decisão automotiva." onBack={onBack}>
-    <div className="vale-plans-grid"><div className="vale-plan-card"><span>ATUAL</span><h2>Grátis</h2><strong>3 análises</strong><p>Análise de preço com FIPE e veredito.</p><ul><li>✓ 3 análises</li><li>✓ FIPE</li><li>✓ Nota 0–10</li></ul></div><div className="vale-plan-card featured"><span>MAIS POPULAR</span><h2>VALE? PRO</h2><strong>R$ 39,99/mês</strong><p>Para quem quer analisar e comparar carros sem limite.</p><ul><li>✓ Análises ilimitadas</li><li>✓ Comparador de carros</li><li>✓ Custo para manter</li><li>✓ Checklist de compra</li><li>✓ Análise de anúncio</li></ul><button className="vale-tool-primary" onClick={onSubscribe}>{access?.status==="PREMIUM"?"Premium ativo":"Assinar PRO"}</button></div><div className="vale-plan-card proplus"><span>PRÓXIMO NÍVEL</span><h2>VALE? PRO+</h2><strong>R$ 59,90/mês</strong><p>Para compradores que querem uma análise ainda mais completa.</p><ul><li>✓ Tudo do PRO</li><li>✓ Ranking avançado</li><li>✓ Histórico de decisões</li><li>✓ Recursos exclusivos futuros</li></ul><button className="vale-tools-plan-btn" disabled>Em breve</button></div></div><div className="vale-plan-note">O VALE? PRO+ está em desenvolvimento. Em breve, você poderá desbloquear recursos avançados para uma análise ainda mais completa.</div>
+    <div className="vale-plans-grid"><div className="vale-plan-card"><span>ATUAL</span><h2>Grátis</h2><strong>3 análises</strong><p>Análise de preço com FIPE e veredito.</p><ul><li>✓ 3 análises</li><li>✓ FIPE</li><li>✓ Nota 0–10</li></ul></div><div className="vale-plan-card featured"><span>MAIS POPULAR</span><h2>VALE? PRO</h2><strong>R$ 39,99/mês</strong><p>Para quem quer analisar e comparar carros sem limite.</p><ul><li>✓ Análises ilimitadas</li><li>✓ Comparador de carros</li><li>✓ Custo para manter</li><li>✓ Checklist de compra</li><li>✓ Análise de anúncio</li></ul><button className="vale-tool-primary" onClick={onSubscribe}>{access?.status==="PREMIUM"?"Premium ativo":"Assinar PRO"}</button></div><div className="vale-plan-card proplus"><span>PRÓXIMO NÍVEL</span><h2>VALE? PRO+</h2><strong>R$ 59,90/mês</strong><p>Para compradores que querem uma análise ainda mais completa.</p><ul><li>✓ Tudo do PRO</li><li>✓ Ranking avançado</li><li>✓ Histórico de decisões</li><li>✓ Recursos exclusivos futuros</li></ul><button className="vale-tools-plan-btn" disabled>Em breve</button></div></div><div className="vale-plan-note">O PRO+ está desenhado como segundo plano, mas o checkout dele ainda precisa ser criado na Cakto antes de receber pagamentos. Nenhuma cobrança será feita por este botão.</div>
   </ToolShell>;
 }
 
@@ -5611,6 +5840,27 @@ export default function App() {
         pbeData = null;
       }
 
+      // Grupo comparável de eficiência (score V2): best-effort, igual ao
+      // PBE — falha ou grupo pequeno demais nunca bloqueia a análise,
+      // só faz buildAnalysisResult cair no modo sem eficiência.
+      let groupRows = null;
+
+      if (pbeData) {
+        try {
+          groupRows = await fetchComparableGroup(
+            pbeData,
+            session && session.access_token
+          );
+        } catch (e) {
+          console.error(
+            "VALE?: erro inesperado ao buscar o grupo comparável de eficiência.",
+            e
+          );
+
+          groupRows = null;
+        }
+      }
+
       // IMPORTANTE:
       // ADMIN não consome análise.
       // PREMIUM também não consome análise.
@@ -5631,7 +5881,8 @@ export default function App() {
         buildAnalysisResult(
           form,
           fipeData,
-          pbeData
+          pbeData,
+          groupRows
         )
       );
 
