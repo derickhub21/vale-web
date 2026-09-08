@@ -92,8 +92,8 @@ const ACCESS_CONFIG = {
   CREDIT_PLAN_NAME: "VALE? CRÉDITOS",
   PRO_PRICE_LABEL: "R$ 29,99/mês",
   PRO_PLAN_NAME: "VALE? PRO",
-  CREDIT_CHECKOUT_URL: "",
-  PRO_CHECKOUT_URL: "",
+  CREDIT_CHECKOUT_URL: "https://pay.cakto.com.br/opi6ead_1092785",
+  PRO_CHECKOUT_URL: "https://pay.cakto.com.br/34qt8g9_1073973",
 };
 
 const SESSION_CACHE_KEY = "vale:session-v1";
