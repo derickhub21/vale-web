@@ -49,7 +49,7 @@ import React, { useState, useMemo, useRef, useEffect } from "react";
    -------------------------------------------------------------------------
    - Autenticação por e-mail/senha via Supabase Auth.
    - Tabela `public.profiles`:
-     id, email, used_analyses, is_premium, is_admin,
+     id, email, used_analyses, credit_analyses, is_premium, is_admin,
      created_at, updated_at.
    - RLS: o usuário só consegue LER a própria linha.
    - `is_admin` é configurado diretamente no Supabase.
@@ -87,9 +87,13 @@ const SUPABASE_CONFIG = {
 // ---------------------------------------------------------------------------
 const ACCESS_CONFIG = {
   FREE_ANALYSES_LIMIT: 3,
-  PRICE_LABEL: "R$ 39,99/mês",
-  PLAN_NAME: "VALE? PRO",
-  CHECKOUT_URL: "https://pay.cakto.com.br/34qt8g9_1073973",
+  CREDIT_ANALYSES_PACKAGE: 7,
+  CREDIT_PRICE_LABEL: "R$ 19,99",
+  CREDIT_PLAN_NAME: "VALE? CRÉDITOS",
+  PRO_PRICE_LABEL: "R$ 29,99/mês",
+  PRO_PLAN_NAME: "VALE? PRO",
+  CREDIT_CHECKOUT_URL: "",
+  PRO_CHECKOUT_URL: "",
 };
 
 const SESSION_CACHE_KEY = "vale:session-v1";
@@ -97,8 +101,22 @@ const SESSION_CACHE_KEY = "vale:session-v1";
 // ---------------------------------------------------------------------------
 // Checkout
 // ---------------------------------------------------------------------------
-function openCheckout() {
-  window.open(ACCESS_CONFIG.CHECKOUT_URL, "_blank", "noopener,noreferrer");
+function openCheckout(type = "pro") {
+  const url =
+    type === "credit"
+      ? ACCESS_CONFIG.CREDIT_CHECKOUT_URL
+      : ACCESS_CONFIG.PRO_CHECKOUT_URL;
+
+  if (!url) {
+    window.alert(
+      type === "credit"
+        ? "O checkout do pacote de 7 análises ainda não foi configurado."
+        : "O checkout do VALE? PRO ainda não foi configurado."
+    );
+    return;
+  }
+
+  window.open(url, "_blank", "noopener,noreferrer");
 }
 
 // ---------------------------------------------------------------------------
@@ -271,7 +289,7 @@ function sessionFromAuthResponse(data) {
 // ---------------------------------------------------------------------------
 async function supaFetchProfile(accessToken) {
   const res = await fetch(
-    `${SUPABASE_CONFIG.URL}/rest/v1/profiles?select=id,email,used_analyses,is_premium,is_admin`,
+    `${SUPABASE_CONFIG.URL}/rest/v1/profiles?select=id,email,used_analyses,credit_analyses,is_premium,is_admin`,
     {
       headers: supaAuthHeaders(accessToken),
     }
@@ -297,6 +315,21 @@ async function supaFetchProfileWithRetry(accessToken) {
 async function supaIncrementUsedAnalyses(accessToken) {
   const res = await fetch(
     `${SUPABASE_CONFIG.URL}/rest/v1/rpc/increment_used_analyses`,
+    {
+      method: "POST",
+      headers: supaAuthHeaders(accessToken),
+      body: JSON.stringify({}),
+    }
+  );
+
+  if (!res.ok) return null;
+
+  return res.json();
+}
+
+async function supaConsumeAnalysis(accessToken) {
+  const res = await fetch(
+    `${SUPABASE_CONFIG.URL}/rest/v1/rpc/consume_analysis`,
     {
       method: "POST",
       headers: supaAuthHeaders(accessToken),
@@ -702,83 +735,48 @@ async function fetchComparableGroup(pbeData, accessToken) {
 // Controle de acesso
 // ---------------------------------------------------------------------------
 
-// Única função central que decide se uma nova análise pode começar.
 function canStartAnalysis(access) {
   if (!access) return false;
 
-  return (
-    access.status === "ADMIN" ||
-    access.status === "PREMIUM" ||
-    access.status === "FREE_ANALYSES_REMAINING"
-  );
+  return [
+    "ADMIN",
+    "PREMIUM",
+    "FREE_ANALYSES_REMAINING",
+    "CREDIT_ANALYSES_REMAINING",
+  ].includes(access.status);
 }
 
-// Registra uma análise concluída.
-// ADMIN NÃO consome análise.
-// PREMIUM também não consome análise.
-// Usuário gratuito consome via RPC.
 async function completeAnalysis(session, access) {
   if (!session) return null;
-
-  // ADMIN tem análises ilimitadas e não consome o contador.
-  if (access?.status === "ADMIN") {
-    return null;
-  }
-
-  // PREMIUM também possui análises ilimitadas.
-  if (access?.status === "PREMIUM") {
-    return null;
-  }
+  if (access?.status === "ADMIN" || access?.status === "PREMIUM") return null;
 
   try {
-    return await supaIncrementUsedAnalyses(session.access_token);
+    return await supaConsumeAnalysis(session.access_token);
   } catch (e) {
-    console.error(
-      "VALE?: falha ao registrar análise concluída.",
-      e
-    );
-
+    console.error("VALE?: falha ao consumir análise.", e);
     return null;
   }
 }
 
-// Deriva o status de acesso a partir do perfil vindo do Supabase.
 function computeAccess(profile) {
   if (!profile) return null;
 
-  // ADMIN tem prioridade.
-  if (profile.is_admin) {
-    return {
-      status: "ADMIN",
-      remaining: null,
-    };
+  if (profile.is_admin) return { status: "ADMIN", remaining: null, creditRemaining: null };
+  if (profile.is_premium) return { status: "PREMIUM", remaining: null, creditRemaining: null };
+
+  const used = Number(profile.used_analyses || 0);
+  const remaining = Math.max(0, ACCESS_CONFIG.FREE_ANALYSES_LIMIT - used);
+  const creditRemaining = Math.max(0, Number(profile.credit_analyses || 0));
+
+  if (remaining > 0) {
+    return { status: "FREE_ANALYSES_REMAINING", remaining, creditRemaining };
   }
 
-  if (profile.is_premium) {
-    return {
-      status: "PREMIUM",
-      remaining: null,
-    };
+  if (creditRemaining > 0) {
+    return { status: "CREDIT_ANALYSES_REMAINING", remaining: 0, creditRemaining };
   }
 
-  const used = profile.used_analyses || 0;
-
-  const remaining = Math.max(
-    0,
-    ACCESS_CONFIG.FREE_ANALYSES_LIMIT - used
-  );
-
-  if (remaining <= 0) {
-    return {
-      status: "USED_ANALYSES",
-      remaining: 0,
-    };
-  }
-
-  return {
-    status: "FREE_ANALYSES_REMAINING",
-    remaining,
-  };
+  return { status: "USED_ANALYSES", remaining: 0, creditRemaining: 0 };
 }
 
 // ---------------------------------------------------------------------------
@@ -2052,6 +2050,34 @@ function AccessBadge({ access }) {
     );
   }
 
+  // CRÉDITOS RESTANTES
+  if (access.status === "CREDIT_ANALYSES_REMAINING") {
+    const label =
+      access.creditRemaining === 1
+        ? "1 análise por crédito restante"
+        : `${access.creditRemaining} análises por créditos restantes`;
+
+    return (
+      <div
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          background: C.surfaceRaised,
+          border: `1px solid ${C.gold}55`,
+          color: C.gold,
+          fontSize: 11,
+          fontWeight: 600,
+          padding: "6px 10px",
+          borderRadius: 999,
+        }}
+      >
+        <span style={{ width: 6, height: 6, borderRadius: 999, background: C.gold }} />
+        {label}
+      </div>
+    );
+  }
+
   // GRATUITAS RESTANTES
   if (
     access.status ===
@@ -2691,9 +2717,12 @@ function HomeScreen({
   onNavigate,
   onPlans,
 }) {
-  const remaining = access?.status === "PREMIUM" || access?.status === "ADMIN"
-    ? "Ilimitadas"
-    : `${access?.remaining ?? 0} de ${ACCESS_CONFIG.FREE_ANALYSES_LIMIT}`;
+  const remaining =
+    access?.status === "PREMIUM" || access?.status === "ADMIN"
+      ? "Ilimitadas"
+      : access?.status === "CREDIT_ANALYSES_REMAINING"
+        ? `${access?.creditRemaining ?? 0} créditos`
+        : `${access?.remaining ?? 0} de ${ACCESS_CONFIG.FREE_ANALYSES_LIMIT}`;
 
   return (
     <div
@@ -2733,7 +2762,9 @@ function HomeScreen({
                 <CheckIcon size={15} color={C.green} />
                 {access?.status === "PREMIUM" || access?.status === "ADMIN"
                   ? "Acesso ilimitado ativo"
-                  : `${access?.remaining ?? 0} análises grátis disponíveis`}
+                  : access?.status === "CREDIT_ANALYSES_REMAINING"
+                    ? `${access?.creditRemaining ?? 0} análises por créditos disponíveis`
+                    : `${access?.remaining ?? 0} análises grátis disponíveis`}
               </div>
             </div>
           </div>
@@ -3907,229 +3938,48 @@ function ResultScreen({
 // ---------------------------------------------------------------------------
 // Paywall
 // ---------------------------------------------------------------------------
-function PaywallScreen({
-  onContinue,
-  onDismiss,
-}) {
+function PaywallScreen({ onBuyCredits, onSubscribe, onDismiss }) {
+  const creditDemo = !ACCESS_CONFIG.CREDIT_CHECKOUT_URL;
+  const proDemo = !ACCESS_CONFIG.PRO_CHECKOUT_URL;
+
   return (
-    <div
-      style={{
-        flex: 1,
-        display: "flex",
-        flexDirection: "column",
-        padding: "0 24px 24px",
-        animation:
-          "vale-fade-in 380ms ease",
-      }}
-    >
-      <div
-        style={{
-          flex: 1,
-          overflowY: "auto",
-          display: "flex",
-          flexDirection: "column",
-          justifyContent: "center",
-          alignItems: "center",
-          textAlign: "center",
-          gap: 16,
-          paddingTop: 12,
-        }}
-      >
-        <div
-          style={{
-            width: 68,
-            height: 68,
-            borderRadius: 20,
-            background: C.surfaceRaised,
-            border: `1px solid ${C.border}`,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <LockIcon
-            size={28}
-            color={C.gold}
-            strokeWidth={1.7}
-          />
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: "0 24px 24px", animation: "vale-fade-in 380ms ease" }}>
+      <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", gap: 16, paddingTop: 12 }}>
+        <div style={{ width: 68, height: 68, borderRadius: 20, background: C.surfaceRaised, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <LockIcon size={28} color={C.gold} strokeWidth={1.7} />
         </div>
 
-        <h1
-          style={{
-            fontFamily:
-              "'Rajdhani', sans-serif",
-            fontWeight: 700,
-            fontSize: 24,
-            color: C.text,
-            margin: 0,
-            maxWidth: 280,
-            lineHeight: 1.3,
-          }}
-        >
-          Suas 3 análises gratuitas
-          terminaram
+        <h1 style={{ fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 24, color: C.text, margin: 0, maxWidth: 340, lineHeight: 1.3 }}>
+          Suas análises gratuitas terminaram
         </h1>
 
-        <p
-          style={{
-            fontSize: 14,
-            color: C.muted,
-            margin: 0,
-            maxWidth: 300,
-            lineHeight: 1.65,
-          }}
-        >
-          Você já experimentou o VALE?.
-          Continue analisando carros e
-          descubra se realmente vale a pena
-          antes de comprar.
+        <p style={{ fontSize: 14, color: C.muted, margin: 0, maxWidth: 420, lineHeight: 1.65 }}>
+          Continue usando o VALE? sem precisar assumir uma assinatura. Escolha entre comprar análises avulsas ou ter acesso ilimitado.
         </p>
 
-        <div
-          style={{
-            marginTop: 6,
-            width: "100%",
-            background: C.surfaceRaised,
-            border: `1px solid ${C.gold}44`,
-            borderRadius: 18,
-            padding: "16px 18px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent:
-              "space-between",
-          }}
-        >
-          <div
-            style={{
-              textAlign: "left",
-            }}
-          >
-            <div
-              style={{
-                fontFamily:
-                  "'Rajdhani', sans-serif",
-                fontWeight: 700,
-                fontSize: 16,
-                color: C.gold,
-              }}
-            >
-              {ACCESS_CONFIG.PLAN_NAME}
-            </div>
-
-            <div
-              style={{
-                fontSize: 12.5,
-                color: C.muted,
-                marginTop: 2,
-              }}
-            >
-              Análises ilimitadas
-            </div>
+        <div style={{ width: "100%", maxWidth: 620, display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))", gap: 12, marginTop: 6 }}>
+          <div style={{ background: C.surfaceRaised, border: `1px solid ${C.gold}55`, borderRadius: 18, padding: 18, textAlign: "left" }}>
+            <div style={{ color: C.gold, fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 16 }}>VALE? CRÉDITOS</div>
+            <div style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, fontSize: 25, color: C.text, marginTop: 5 }}>R$ 19,99</div>
+            <div style={{ color: C.muted, fontSize: 12.5, marginTop: 4 }}>7 análises • pagamento único</div>
+            <div style={{ color: C.text, fontSize: 13, lineHeight: 1.6, marginTop: 12 }}>Use as 7 análises quando quiser. Os créditos não expiram.</div>
+            <button className="vale-tool-primary" style={{ width: "100%", marginTop: 14 }} onClick={onBuyCredits}>Comprar 7 análises</button>
+            {creditDemo && <div style={{ color: C.faint, fontSize: 10.5, marginTop: 8 }}>Checkout aguardando configuração na Cakto.</div>}
           </div>
 
-          <div
-            style={{
-              fontFamily:
-                "'JetBrains Mono', monospace",
-              fontWeight: 600,
-              fontSize: 17,
-              color: C.text,
-            }}
-          >
-            {ACCESS_CONFIG.PRICE_LABEL}
+          <div style={{ background: C.surfaceRaised, border: `1px solid ${C.green}55`, borderRadius: 18, padding: 18, textAlign: "left" }}>
+            <div style={{ color: C.green, fontFamily: "'Rajdhani', sans-serif", fontWeight: 700, fontSize: 16 }}>VALE? PRO</div>
+            <div style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, fontSize: 25, color: C.text, marginTop: 5 }}>R$ 29,99/mês</div>
+            <div style={{ color: C.muted, fontSize: 12.5, marginTop: 4 }}>Análises ilimitadas • assinatura mensal</div>
+            <div style={{ color: C.text, fontSize: 13, lineHeight: 1.6, marginTop: 12 }}>Acesso ilimitado às análises e aos recursos PRO do VALE?.</div>
+            <button className="vale-tool-primary" style={{ width: "100%", marginTop: 14 }} onClick={onSubscribe}>Assinar VALE? PRO</button>
+            {proDemo && <div style={{ color: C.faint, fontSize: 10.5, marginTop: 8 }}>Checkout aguardando configuração na Cakto.</div>}
           </div>
-        </div>
-
-        <div
-          style={{
-            width: "100%",
-            background: C.surfaceRaised,
-            border: `1px solid ${C.border}`,
-            borderRadius: 18,
-            padding: 16,
-            display: "flex",
-            flexDirection: "column",
-            gap: 11,
-            textAlign: "left",
-          }}
-        >
-          {[
-            "Novas análises de veículos",
-            "Análise de preço",
-            "Comparação com preço de referência",
-            "Indicadores do veículo",
-            "Veredito antes da compra",
-          ].map((b) => (
-            <div
-              key={b}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-              }}
-            >
-              <div
-                style={{
-                  width: 18,
-                  height: 18,
-                  minWidth: 18,
-                  borderRadius: 6,
-                  background: C.greenDim,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent:
-                    "center",
-                }}
-              >
-                <CheckIcon
-                  size={11}
-                  color={C.green}
-                  strokeWidth={2.8}
-                />
-              </div>
-
-              <span
-                style={{
-                  fontSize: 13.5,
-                  color: C.text,
-                }}
-              >
-                {b}
-              </span>
-            </div>
-          ))}
         </div>
       </div>
 
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: 10,
-          alignItems: "center",
-          marginTop: 16,
-        }}
-      >
-        <PrimaryButton
-          onClick={onContinue}
-          icon={
-            <ZapIcon
-              size={17}
-              color="#171006"
-            />
-          }
-        >
-          Continuar com VALE? PRO
-        </PrimaryButton>
-
-        <SecondaryButton
-          onClick={onDismiss}
-          style={{
-            border: "none",
-          }}
-        >
-          Agora não
-        </SecondaryButton>
+      <div style={{ display: "flex", justifyContent: "center", marginTop: 16 }}>
+        <SecondaryButton onClick={onDismiss} style={{ border: "none" }}>Agora não</SecondaryButton>
       </div>
     </div>
   );
@@ -4152,7 +4002,7 @@ function OfferScreen({
   onSubscribe,
 }) {
   const demoMode =
-    !ACCESS_CONFIG.CHECKOUT_URL;
+    !ACCESS_CONFIG.PRO_CHECKOUT_URL;
 
   return (
     <div
@@ -4244,7 +4094,7 @@ function OfferScreen({
               color={C.gold}
             />
 
-            {ACCESS_CONFIG.PLAN_NAME}
+            {ACCESS_CONFIG.PRO_PLAN_NAME}
           </div>
 
           <div
@@ -4257,7 +4107,7 @@ function OfferScreen({
               marginTop: 8,
             }}
           >
-            {ACCESS_CONFIG.PRICE_LABEL}
+            {ACCESS_CONFIG.PRO_PRICE_LABEL}
           </div>
         </div>
 
@@ -5516,10 +5366,31 @@ function AdAnalysisScreen({ onBack }) {
   return <ToolShell title="Analisar anúncio" subtitle="Cole o texto do anúncio. O VALE? verifica informações presentes e sinais de atenção — não substitui uma vistoria." onBack={onBack}><textarea className="vale-ad-textarea" value={text} onChange={e=>setText(e.target.value)} placeholder="Cole aqui o texto completo do anúncio…"/><button className="vale-tool-primary" onClick={analyze} disabled={!text.trim()}>Analisar anúncio</button>{result&&<div className="vale-ad-result"><div className="vale-ad-score"><span>COMPLETUDE DO ANÚNCIO</span><strong>{result.score}/10</strong></div><div className="vale-ad-checks">{result.checks.map(([x,ok])=><div key={x}><span>{ok?"✓":"!"}</span><strong>{x}</strong><small>{ok?"Encontrado":"Não identificado"}</small></div>)}</div>{result.attention.length>0&&<div className="vale-ad-attention"><strong>Pontos para conferir</strong>{result.attention.map(x=><p key={x}>• {x}</p>)}</div>}</div>}</ToolShell>;
 }
 
-function PlansScreen({ access, onBack, onSubscribe }) {
-  return <ToolShell title="Planos VALE?" subtitle="Escolha o nível de acesso para usar o VALE? como sua central de decisão automotiva." onBack={onBack}>
-    <div className="vale-plans-grid"><div className="vale-plan-card"><span>ATUAL</span><h2>Grátis</h2><strong>3 análises</strong><p>Análise de preço com FIPE e veredito.</p><ul><li>✓ 3 análises</li><li>✓ FIPE</li><li>✓ Nota 0–10</li></ul></div><div className="vale-plan-card featured"><span>MAIS POPULAR</span><h2>VALE? PRO</h2><strong>R$ 39,99/mês</strong><p>Para quem quer analisar e comparar carros sem limite.</p><ul><li>✓ Análises ilimitadas</li><li>✓ Comparador de carros</li><li>✓ Custo para manter</li><li>✓ Checklist de compra</li><li>✓ Análise de anúncio</li></ul><button className="vale-tool-primary" onClick={onSubscribe}>{access?.status==="PREMIUM"?"Premium ativo":"Assinar PRO"}</button></div><div className="vale-plan-card proplus"><span>PRÓXIMO NÍVEL</span><h2>VALE? PRO+</h2><strong>R$ 59,90/mês</strong><p>Para compradores que querem uma análise ainda mais completa.</p><ul><li>✓ Tudo do PRO</li><li>✓ Ranking avançado</li><li>✓ Histórico de decisões</li><li>✓ Recursos exclusivos futuros</li></ul><button className="vale-tools-plan-btn" disabled>Em breve</button></div></div><div className="vale-plan-note">O PRO+ está desenhado como segundo plano, mas o checkout dele ainda precisa ser criado na Cakto antes de receber pagamentos. Nenhuma cobrança será feita por este botão.</div>
-  </ToolShell>;
+function PlansScreen({ access, onBack, onSubscribe, onBuyCredits }) {
+  return (
+    <ToolShell title="Planos VALE?" subtitle="Escolha como você quer continuar usando sua central de decisão automotiva." onBack={onBack}>
+      <div className="vale-plans-grid">
+        <div className="vale-plan-card">
+          <span>ATUAL</span><h2>Grátis</h2><strong>3 análises</strong>
+          <p>Comece gratuitamente e descubra se o carro vale a pena.</p>
+          <ul><li>✓ 3 análises gratuitas</li><li>✓ FIPE</li><li>✓ Nota 0–10</li><li>✓ Dados do INMETRO</li></ul>
+        </div>
+        <div className="vale-plan-card featured">
+          <span>MAIS FLEXÍVEL</span><h2>VALE? CRÉDITOS</h2><strong>R$ 19,99</strong>
+          <p>Para quem quer comprar análises sem assinatura.</p>
+          <ul><li>✓ 7 análises</li><li>✓ Pagamento único</li><li>✓ Créditos não expiram</li><li>✓ Recursos PRO enquanto houver créditos</li></ul>
+          <button className="vale-tool-primary" onClick={onBuyCredits}>Comprar 7 análises</button>
+        </div>
+        <div className="vale-plan-card">
+          <span>ILIMITADO</span><h2>VALE? PRO</h2><strong>R$ 29,99/mês</strong>
+          <p>Para quem quer usar o VALE? sem limite.</p>
+          <ul><li>✓ Análises ilimitadas</li><li>✓ Comparador de carros</li><li>✓ Custo para manter</li><li>✓ Checklist de compra</li><li>✓ Analisar anúncio</li></ul>
+          <button className="vale-tool-primary" onClick={onSubscribe}>{access?.status === "PREMIUM" ? "PRO ativo" : "Assinar PRO"}</button>
+        </div>
+      </div>
+      <div className="vale-plan-note">Os créditos são por quantidade de análises e não expiram. O PRO é uma assinatura mensal com análises ilimitadas.</div>
+    </ToolShell>
+  );
 }
 
 export default function App() {
@@ -5909,7 +5780,11 @@ export default function App() {
   // Assinatura
   // -------------------------------------------------------------------------
   const handleSubscribe = () => {
-    openCheckout();
+    openCheckout("pro");
+  };
+
+  const handleBuyCredits = () => {
+    openCheckout("credit");
   };
 
   const openTool = (tool) => {
@@ -6249,7 +6124,7 @@ export default function App() {
         {toolScreen === "cost" && <CostScreen accessToken={session?.access_token} onBack={closeTool} />}
         {toolScreen === "check" && <ChecklistScreen onBack={closeTool} />}
         {toolScreen === "ad" && <AdAnalysisScreen onBack={closeTool} />}
-        {toolScreen === "plans" && <PlansScreen access={access} onBack={closeTool} onSubscribe={handleSubscribe} />}
+        {toolScreen === "plans" && <PlansScreen access={access} onBack={closeTool} onSubscribe={handleSubscribe} onBuyCredits={handleBuyCredits} />}
 
         {!toolScreen && screen === "loading" && (
           <LoadingScreen />
@@ -6356,14 +6231,9 @@ export default function App() {
             }}
           >
             <PaywallScreen
-              onContinue={
-                handleSubscribe
-              }
-              onDismiss={() =>
-                setScreen(
-                  "home"
-                )
-              }
+              onBuyCredits={handleBuyCredits}
+              onSubscribe={handleSubscribe}
+              onDismiss={() => setScreen("home")}
             />
           </div>
         )}
